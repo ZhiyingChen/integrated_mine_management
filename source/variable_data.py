@@ -64,12 +64,65 @@ class VariableData:
             sum(self.burden_ratio.values()),
         )
 
+    def set_variables(
+        self,
+        sinter_ratio: Dict[int, float],
+        pellet_ratio: Dict[int, float],
+        burden_ratio: Dict[int, float],
+    ):
+        self.sinter_ratio = dict(sinter_ratio)
+        self.pellet_ratio = dict(pellet_ratio)
+        self.burden_ratio = dict(burden_ratio)
+
+    @classmethod
+    def build_from_ratios(
+        cls,
+        input_data: InputData,
+        sinter_ratio: Dict[int, float],
+        pellet_ratio: Dict[int, float],
+        burden_ratio: Dict[int, float],
+    ):
+        variable_data = cls(input_data=input_data)
+        variable_data.set_variables(
+            sinter_ratio=sinter_ratio,
+            pellet_ratio=pellet_ratio,
+            burden_ratio=burden_ratio,
+        )
+        variable_data.calculate_auxiliary_variables()
+        return variable_data
+
     def calculate_auxiliary_variables(self):
+        self._reset_auxiliary_variables()
         self._calculate_sinter_auxiliary()
         self._calculate_pellet_auxiliary()
         self._calculate_burden_auxiliary()
         self._calculate_hot_metal_slag_load_auxiliary()
         self._calculate_hot_metal_cost()
+
+    def _reset_auxiliary_variables(self):
+        self.sinter_dry_basis = {}
+        self.sinter_burn_save = {}
+        self.pellet_dry_basis = {}
+        self.pellet_burn_save = {}
+        self.sinter_composition = {}
+        self.sinter_indicator = {}
+        self.pellet_composition = {}
+        self.sinter_unit_cost = 0.0
+        self.pellet_unit_cost = 0.0
+        self.burden_unit_price = {}
+        self.burden_content = {}
+        self.hot_metal_grade = 0.0
+        self.burden_dry_unit = {}
+        self.burden_gross_dry_unit = {}
+        self.burden_return_price = {}
+        self.burden_return_fines = {}
+        self.in_furnace_content = {}
+        self.hot_metal_composition = {}
+        self.slag_amount = {}
+        self.slag_composition = {}
+        self.slag_alkalinity = {}
+        self.harmful_load = {}
+        self.hot_metal_cost = 0.0
 
     def _calculate_sinter_auxiliary(self):
         for row, ratio in self.sinter_ratio.items():
