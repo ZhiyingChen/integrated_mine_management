@@ -1,4 +1,4 @@
-EXCEL_FILENAME = "智能配矿一体化20260522.xlsx"
+EXCEL_FILENAME = "智能配矿一体化.xlsx"
 DATA_DIR = "data"
 LOG_DIR = "logs"
 

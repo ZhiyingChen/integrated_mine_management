@@ -35,7 +35,7 @@ python3 main.py
 
 - 使用 `cost` 模式求解
 - 将核心决策变量直接覆盖写回原始 Excel：
-  `data/智能配矿一体化20260522.xlsx`
+  `data/智能配矿一体化.xlsx`
 
 可选参数：
 
