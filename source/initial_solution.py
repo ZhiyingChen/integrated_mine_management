@@ -2,109 +2,34 @@ import logging
 from typing import Dict, List
 
 from .input_data import InputData
-from .utils import field, header
 
 
 class InitialSolution:
     def __init__(self, input_data: InputData):
         self.input_data = input_data
 
-    def generate_from_excel_snapshot(self):
-        if not self._has_excel_baseline_values():
-            raise ValueError("Excel baseline ratio columns are empty.")
-        return {
-            "sinter": self._project_group(
-                rows=self.input_data.sinter_rows,
-                values=self._read_sheet_values(
-                    sheet_name=field.SHEET_INTEGRATED_SINTER,
-                    rows=self.input_data.sinter_rows,
-                    col=self.input_data.header_col(
-                        sheet_name=field.SHEET_INTEGRATED_SINTER,
-                        header_name=header.BlendHeader.baseline_ratio,
-                    ),
-                ),
-                bounds={
-                    row: self.input_data.sinter_params[row].ratio_bounds
-                    for row in self.input_data.sinter_rows
-                },
-            ),
-            "pellet": self._project_group(
-                rows=self.input_data.pellet_rows,
-                values=self._read_sheet_values(
-                    sheet_name=field.SHEET_INTEGRATED_PELLET,
-                    rows=self.input_data.pellet_rows,
-                    col=self.input_data.header_col(
-                        sheet_name=field.SHEET_INTEGRATED_PELLET,
-                        header_name=header.BlendHeader.baseline_ratio,
-                    ),
-                ),
-                bounds={
-                    row: self.input_data.pellet_params[row].ratio_bounds
-                    for row in self.input_data.pellet_rows
-                },
-            ),
-            "burden": self._project_group(
-                rows=self.selected_burden_rows,
-                values=self._read_sheet_values(
-                    sheet_name=field.SHEET_BF_BURDEN,
-                    rows=self.selected_burden_rows,
-                    col=self.input_data.header_col(
-                        sheet_name=field.SHEET_BF_BURDEN,
-                        header_name=header.BurdenHeader.baseline_ratio,
-                    ),
-                ),
-                bounds={
-                    row: self.input_data.burden_params[row].ratio_bounds
-                    for row in self.selected_burden_rows
-                },
-            ),
-        }
-
-    def _has_excel_baseline_values(self) -> bool:
-        checks = [
-            (
-                field.SHEET_INTEGRATED_SINTER,
-                self.input_data.sinter_rows,
-                header.BlendHeader.baseline_ratio,
-            ),
-            (
-                field.SHEET_INTEGRATED_PELLET,
-                self.input_data.pellet_rows,
-                header.BlendHeader.baseline_ratio,
-            ),
-            (
-                field.SHEET_BF_BURDEN,
-                self.selected_burden_rows,
-                header.BurdenHeader.baseline_ratio,
-            ),
-        ]
-        for sheet, rows, header_name in checks:
-            col = self.input_data.header_col(sheet, header_name)
-            for row in rows:
-                value = self.input_data.workbook.value(sheet, row, col, default=None)
-                if value not in (None, ""):
-                    return True
-        return False
-
-    def _read_sheet_values(self, sheet_name: str, rows: List[int], col: int) -> Dict[int, float]:
-        return {
-            row: self.input_data.workbook.numeric_value(sheet_name, row, col, default=0.0)
-            for row in rows
-        }
-
-    def generate_from_bounds_only(self):
+    def generate_from_bounds_only(self, active_rows: Dict[str, set] = None):
+        active_rows = active_rows or {}
         return {
             "sinter": self._generate_group_from_bounds(
                 rows=self.input_data.sinter_rows,
                 bounds={
-                    row: self.input_data.sinter_params[row].ratio_bounds
+                    row: self._active_bounds(
+                        row=row,
+                        bounds=self.input_data.sinter_params[row].ratio_bounds,
+                        active_rows=active_rows.get("sinter"),
+                    )
                     for row in self.input_data.sinter_rows
                 },
             ),
             "pellet": self._generate_group_from_bounds(
                 rows=self.input_data.pellet_rows,
                 bounds={
-                    row: self.input_data.pellet_params[row].ratio_bounds
+                    row: self._active_bounds(
+                        row=row,
+                        bounds=self.input_data.pellet_params[row].ratio_bounds,
+                        active_rows=active_rows.get("pellet"),
+                    )
                     for row in self.input_data.pellet_rows
                 },
             ),
@@ -116,6 +41,12 @@ class InitialSolution:
                 },
             ),
         }
+
+    @staticmethod
+    def _active_bounds(row: int, bounds: tuple, active_rows):
+        if active_rows is not None and row not in active_rows:
+            return 0.0, 0.0
+        return bounds
 
     @property
     def selected_burden_rows(self) -> List[int]:
@@ -182,13 +113,7 @@ class InitialSolution:
                 step = diff * room / capacity
                 result[row] += step
 
-    def run_model(self):
-        try:
-            initial = self.generate_from_excel_snapshot()
-            logging.info("initial solution source: excel_baseline_ratio")
-            return initial
-        except Exception as exc:
-            logging.warning("excel baseline ratio initial solution unavailable, fallback to bounds-only: %s", exc)
-            initial = self.generate_from_bounds_only()
-            logging.info("initial solution source: bounds_only")
-            return initial
+    def run_model(self, active_rows: Dict[str, set] = None):
+        initial = self.generate_from_bounds_only(active_rows=active_rows)
+        logging.info("initial solution seed source: bounds_only")
+        return initial

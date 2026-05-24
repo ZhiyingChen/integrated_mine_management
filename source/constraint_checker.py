@@ -65,9 +65,9 @@ class ConstraintChecker:
             if param.category == "块矿":
                 result.append(
                     self._build_equality_residual(
-                        label=f"勾选逻辑:块矿固定参与:{param.name}[row={row}]",
+                        label=f"勾选逻辑:块矿勾选按输入固定:{param.name}[row={row}]",
                         value=float(param.selected),
-                        target=1.0,
+                        target=float(param.selected),
                     )
                 )
         return result
@@ -235,8 +235,26 @@ class ConstraintChecker:
         return values
 
     def violation_penalty(self, variable_data: VariableData) -> float:
+        return self._violation_penalty(self.model_ineq_residuals(variable_data))
+
+    def business_violation_penalty(self, variable_data: VariableData) -> float:
+        return self._violation_penalty(self.all_business_residuals(variable_data))
+
+    def max_business_violation(self, variable_data: VariableData) -> float:
+        violations = [residual.violation for residual in self.all_business_residuals(variable_data)]
+        return max(violations) if violations else 0.0
+
+    def is_business_feasible(self, variable_data: VariableData, tol: float = 1e-6) -> bool:
+        for residual in self.all_business_residuals(variable_data):
+            scale = max(1.0, abs(residual.lower), abs(residual.upper))
+            if residual.violation > tol * scale:
+                return False
+        return True
+
+    @staticmethod
+    def _violation_penalty(residuals: List[ConstraintResidual]) -> float:
         penalty = 0.0
-        for residual in self.model_ineq_residuals(variable_data):
+        for residual in residuals:
             scale = max(1.0, abs(residual.lower), abs(residual.upper))
             penalty += (max(0.0, -residual.lower_residual) / scale) ** 2
             penalty += (max(0.0, -residual.upper_residual) / scale) ** 2
@@ -246,16 +264,18 @@ class ConstraintChecker:
         violations = [residual.violation for residual in self.model_ineq_residuals(variable_data)]
         return max(violations) if violations else 0.0
 
-    def validate_and_log(self, variable_data: VariableData, tol: float = 1e-6):
+    def validate_and_log(self, variable_data: VariableData, tol: float = 1e-6, stage: str = ""):
         total = 0
         failed = 0
+        prefix = f"{stage} " if stage else ""
         for residual in self.all_business_residuals(variable_data):
             total += 1
             scale = max(1.0, abs(residual.lower), abs(residual.upper))
             ok = residual.violation <= tol * scale
             if ok:
                 logging.info(
-                    "BUSINESS CHECK PASS %-55s value=% .12g lower=% .12g upper=% .12g violation=% .3g",
+                    "%sBUSINESS CHECK PASS %-55s value=% .12g lower=% .12g upper=% .12g violation=% .3g",
+                    prefix,
                     residual.label,
                     residual.value,
                     residual.lower,
@@ -265,7 +285,8 @@ class ConstraintChecker:
             else:
                 failed += 1
                 logging.warning(
-                    "BUSINESS CHECK FAIL %-55s value=% .12g lower=% .12g upper=% .12g violation=% .12g",
+                    "%sBUSINESS CHECK FAIL %-55s value=% .12g lower=% .12g upper=% .12g violation=% .12g",
+                    prefix,
                     residual.label,
                     residual.value,
                     residual.lower,
@@ -273,7 +294,8 @@ class ConstraintChecker:
                     residual.violation,
                 )
         logging.info(
-            "business constraint summary: total=%s failed=%s passed=%s",
+            "%sbusiness constraint summary: total=%s failed=%s passed=%s",
+            prefix,
             total,
             failed,
             total - failed,

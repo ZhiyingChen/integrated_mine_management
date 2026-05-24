@@ -9,12 +9,21 @@ from .variable_data import VariableData
 
 
 class Model:
-    def __init__(self, input_data: InputData, initial_x: Dict[str, float]  = None):
+    COST_PENALTY_WEIGHT = 1e10
+
+    def __init__(self, input_data: InputData, initial_x: Dict[str, float]  = None, active_rows: Dict[str, set] = None):
         self.input_data = input_data
         self.initial_x = initial_x or {}
+        self.active_rows = active_rows or self._default_active_rows()
         self.checker = ConstraintChecker(input_data=input_data)
-        self.sinter_rows = list(input_data.sinter_rows)
-        self.pellet_rows = list(input_data.pellet_rows)
+        self.sinter_rows = [
+            row for row in input_data.sinter_rows
+            if row in self.active_rows["sinter"]
+        ]
+        self.pellet_rows = [
+            row for row in input_data.pellet_rows
+            if row in self.active_rows["pellet"]
+        ]
         self.burden_rows = [
             row for row in input_data.burden_rows
             if input_data.burden_params[row].selected
@@ -27,26 +36,89 @@ class Model:
         self._last_eval_x = None
         self._last_eval_variable_data = None
 
+    def _default_active_rows(self) -> Dict[str, set]:
+        return {
+            "sinter": self._select_active_blend_rows(
+                rows=self.input_data.sinter_rows,
+                params=self.input_data.sinter_params,
+                count_limit_key="烧结铁矿粉仓数≤",
+            ),
+            "pellet": self._select_active_blend_rows(
+                rows=self.input_data.pellet_rows,
+                params=self.input_data.pellet_params,
+                count_limit_key="球团铁矿粉仓数≤",
+            ),
+        }
+
+    def _select_active_blend_rows(self, rows: List[int], params: Dict[int, object], count_limit_key: str) -> set:
+        active_rows = set(rows)
+        limit = int(self.input_data.param_dict.get(count_limit_key, len(rows)))
+        ore_rows = [
+            row for row in rows
+            if params[row].name in self.input_data.sinter_ore_names
+            and params[row].ratio_bounds[1] > 0
+        ]
+        if len(ore_rows) <= limit:
+            return active_rows
+        selected_ore_rows = sorted(
+            ore_rows,
+            key=lambda row: (
+                -params[row].chemical_content.get("TFe", 0.0),
+                params[row].unit_price,
+                row,
+            ),
+        )[:limit]
+        inactive_ore_rows = set(ore_rows) - set(selected_ore_rows)
+        active_rows -= inactive_ore_rows
+        logging.info(
+            "active ore rows selected for %s: selected=%s inactive=%s",
+            count_limit_key,
+            selected_ore_rows,
+            sorted(inactive_ore_rows),
+        )
+        return active_rows
+
     def generate_initial_x(self) -> List[float]:
         if self.initial_x:
             return [self.initial_x[kind][row] for kind, row in self.keys]
-        initial = InitialSolution(input_data=self.input_data).run_model()
+        initial = InitialSolution(input_data=self.input_data).run_model(active_rows=self.active_rows)
         return [initial[kind][row] for kind, row in self.keys]
+
+    def solution_dict(self, x: Sequence[float]) -> Dict[str, Dict[int, float]]:
+        sinter_ratio, pellet_ratio, burden_ratio = self.decode_x(x)
+        return {
+            "sinter": sinter_ratio,
+            "pellet": pellet_ratio,
+            "burden": {
+                row: value
+                for row, value in burden_ratio.items()
+                if row in self.burden_rows
+            },
+        }
 
     def generate_bounds(self):
         bounds = []
         for kind, row in self.keys:
             if kind == "sinter":
-                bounds.append(self.input_data.sinter_params[row].ratio_bounds)
+                bounds.append(self._bounds_for_active_row(kind, row, self.input_data.sinter_params[row].ratio_bounds))
             elif kind == "pellet":
-                bounds.append(self.input_data.pellet_params[row].ratio_bounds)
+                bounds.append(self._bounds_for_active_row(kind, row, self.input_data.pellet_params[row].ratio_bounds))
             else:
                 bounds.append(self.input_data.burden_params[row].ratio_bounds)
         return bounds
 
+    def _bounds_for_active_row(self, kind: str, row: int, bounds: tuple):
+        if row not in self.active_rows[kind]:
+            return 0.0, 0.0
+        return bounds
+
     def decode_x(self, x: Sequence[float]):
-        sinter_ratio = {}
-        pellet_ratio = {}
+        sinter_ratio = {
+            row: 0.0 for row in self.input_data.sinter_rows
+        }
+        pellet_ratio = {
+            row: 0.0 for row in self.input_data.pellet_rows
+        }
         burden_ratio = {
             row: 0.0 for row in self.input_data.burden_rows
         }
@@ -76,17 +148,17 @@ class Model:
 
     def objective_feasibility(self, x: Sequence[float]) -> float:
         variable_data = self.calculate_variable_data(x)
-        return self.checker.violation_penalty(variable_data)
+        return self.checker.business_violation_penalty(variable_data)
 
     def objective_cost(self, x: Sequence[float]) -> float:
         variable_data = self.calculate_variable_data(x)
-        return variable_data.hot_metal_cost + 1e8 * self.checker.violation_penalty(variable_data)
+        return variable_data.hot_metal_cost + self.COST_PENALTY_WEIGHT * self.checker.business_violation_penalty(variable_data)
 
     def nonlinear_ineq_residuals(self, x: Sequence[float]):
         variable_data = self.calculate_variable_data(x)
         return self.checker.scipy_ineq_values(variable_data)
 
-    def generate_constraints(self):
+    def generate_core_constraints(self):
         return [
             {
                 "type": "eq",
@@ -109,12 +181,10 @@ class Model:
                 ) - 100.0,
                 "name": "burden_ratio_sum",
             },
-            {
-                "type": "ineq",
-                "fun": self.nonlinear_ineq_residuals,
-                "name": "enabled_model_inequalities",
-            },
         ]
+
+    def generate_constraints(self):
+        return self.generate_core_constraints()
 
     def summarize_solution(self, x: Sequence[float]):
         variable_data = self.calculate_variable_data(x)
@@ -128,7 +198,36 @@ class Model:
         )
         return variable_data
 
-    def run_model(self, mode: str = "feasibility", maxiter: int = 500, ftol: float = 1e-8):
+    def _build_iteration_callback(self, phase: str, objective):
+        iteration = {"count": 0}
+
+        def callback(xk):
+            iteration["count"] += 1
+            variable_data = self.calculate_variable_data(xk)
+            objective_value = objective(xk)
+            penalty = self.checker.business_violation_penalty(variable_data)
+            max_violation = self.checker.max_business_violation(variable_data)
+            print(
+                "SCIPY ITER "
+                f"phase={phase} "
+                f"iter={iteration['count']} "
+                f"objective={objective_value:.12g} "
+                f"penalty={penalty:.12g} "
+                f"max_business_violation={max_violation:.12g} "
+                f"hot_metal_cost={variable_data.hot_metal_cost:.12g}",
+                flush=True,
+            )
+
+        return callback
+
+    def run_model(
+        self,
+        mode: str = "feasibility",
+        maxiter: int = 500,
+        ftol: float = 1e-8,
+        phase: str = None,
+        show_iterations: bool = True,
+    ):
         try:
             from scipy.optimize import minimize
         except ModuleNotFoundError as exc:
@@ -136,21 +235,24 @@ class Model:
 
         x0 = self.generate_initial_x()
         objective = self.objective_feasibility if mode == "feasibility" else self.objective_cost
+        phase_name = phase or mode
         start = time.time()
         result = minimize(
             objective,
             x0,
             method="SLSQP",
             bounds=self.generate_bounds(),
-            constraints=self.generate_constraints(),
+            constraints=self.generate_core_constraints(),
+            callback=self._build_iteration_callback(phase_name, objective) if show_iterations else None,
             options={
                 "maxiter": maxiter,
                 "ftol": ftol,
-                "disp": False,
+                "disp": show_iterations,
             },
         )
         logging.info(
-            "scipy SLSQP finished: mode=%s success=%s status=%s nit=%s fun=%.12g time=%.3fs message=%s",
+            "scipy SLSQP finished: phase=%s mode=%s success=%s status=%s nit=%s fun=%.12g time=%.3fs message=%s",
+            phase_name,
             mode,
             result.success,
             result.status,
