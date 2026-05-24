@@ -16,8 +16,8 @@
 
 - `source/input_data.py`：读取直接参数，并计算间接参数。
 - `source/variable_data.py`：根据给定配比计算全部辅助变量。
-- `source/initial_solution.py`：从 Excel 当前解生成 scipy 初始连续配比。
-- `source/model.py`：无物料个数约束版本的 scipy SLSQP 模型入口。
+- `source/initial_solution.py`：优先从 Excel 基准值配比生成 scipy warm start，缺失时退回到按上下限自动生成初始解。
+- `source/model.py`：scipy SLSQP 模型入口。
 - `source/constraint_checker.py`：统一生成已启用质量上下限约束的残差和惩罚。
 - `source/result_storage.py`：将核心变量写回 Excel。
 - `source/domain_object/`：参数、物料等领域对象。

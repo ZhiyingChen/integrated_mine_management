@@ -6,7 +6,7 @@ from typing import Dict
 from openpyxl import load_workbook
 
 from .input_data import InputData
-from .utils import field
+from .utils import field, header
 
 
 class ResultStorage:
@@ -38,19 +38,19 @@ class ResultStorage:
             workbook=workbook,
             sheet_name=field.SHEET_INTEGRATED_SINTER,
             values=sinter_ratio,
-            col=5,
+            col=self.input_data.header_col(field.SHEET_INTEGRATED_SINTER, header.BlendHeader.integrated_ratio),
         )
         self._write_sheet_values(
             workbook=workbook,
             sheet_name=field.SHEET_INTEGRATED_PELLET,
             values=pellet_ratio,
-            col=5,
+            col=self.input_data.header_col(field.SHEET_INTEGRATED_PELLET, header.BlendHeader.integrated_ratio),
         )
         self._write_sheet_values(
             workbook=workbook,
             sheet_name=field.SHEET_BF_BURDEN,
             values=burden_ratio,
-            col=7,
+            col=self.input_data.header_col(field.SHEET_BF_BURDEN, header.BurdenHeader.integrated_ratio),
         )
         self._mark_recalculate_on_open(workbook)
         workbook.save(output_path)

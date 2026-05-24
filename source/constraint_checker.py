@@ -4,6 +4,7 @@ from typing import Dict, List
 
 from .input_data import InputData
 from .variable_data import VariableData
+from .utils import field
 
 
 @dataclass
@@ -74,17 +75,17 @@ class ConstraintChecker:
     def ratio_sum_residuals(self, variable_data: VariableData) -> List[ConstraintResidual]:
         return [
             self._build_equality_residual(
-                label="配比和:一体化烧结配矿",
+                label=f"配比和:{field.SHEET_INTEGRATED_SINTER}",
                 value=sum(variable_data.sinter_ratio.values()),
                 target=100.0,
             ),
             self._build_equality_residual(
-                label="配比和:一体化球团配矿",
+                label=f"配比和:{field.SHEET_INTEGRATED_PELLET}",
                 value=sum(variable_data.pellet_ratio.values()),
                 target=100.0,
             ),
             self._build_equality_residual(
-                label="配比和:一体化高炉炉料",
+                label=f"配比和:{field.SHEET_BF_BURDEN}",
                 value=sum(variable_data.burden_ratio.values()),
                 target=100.0,
             ),
@@ -103,13 +104,13 @@ class ConstraintChecker:
         )
         return [
             self._build_bound_residual(
-                label="使用个数:一体化烧结配矿中烧结铁矿粉仓数≤",
+                label=f"使用个数:{field.SHEET_INTEGRATED_SINTER}中烧结铁矿粉仓数≤",
                 value=float(sinter_ore_count),
                 lower=0.0,
                 upper=self.input_data.param_dict.get("烧结铁矿粉仓数≤", 0.0),
             ),
             self._build_bound_residual(
-                label="使用个数:一体化球团配矿中烧结铁矿粉仓数≤",
+                label=f"使用个数:{field.SHEET_INTEGRATED_PELLET}中烧结铁矿粉仓数≤",
                 value=float(pellet_ore_count),
                 lower=0.0,
                 upper=self.input_data.param_dict.get("球团铁矿粉仓数≤", 0.0),
@@ -129,7 +130,7 @@ class ConstraintChecker:
             param = self.input_data.sinter_params[row]
             result.append(
                 self._build_bound_residual(
-                    label=f"配比上下限:一体化烧结配矿:{param.name}[row={row}]",
+                    label=f"配比上下限:{field.SHEET_INTEGRATED_SINTER}:{param.name}[row={row}]",
                     value=variable_data.sinter_ratio.get(row, 0.0),
                     lower=param.ratio_bounds[0],
                     upper=param.ratio_bounds[1],
@@ -140,7 +141,7 @@ class ConstraintChecker:
             param = self.input_data.pellet_params[row]
             result.append(
                 self._build_bound_residual(
-                    label=f"配比上下限:一体化球团配矿:{param.name}[row={row}]",
+                    label=f"配比上下限:{field.SHEET_INTEGRATED_PELLET}:{param.name}[row={row}]",
                     value=variable_data.pellet_ratio.get(row, 0.0),
                     lower=param.ratio_bounds[0],
                     upper=param.ratio_bounds[1],
@@ -153,7 +154,7 @@ class ConstraintChecker:
             if param.selected:
                 result.append(
                     self._build_bound_residual(
-                        label=f"配比上下限:一体化高炉炉料:{param.name}[row={row}]",
+                        label=f"配比上下限:{field.SHEET_BF_BURDEN}:{param.name}[row={row}]",
                         value=value,
                         lower=param.ratio_bounds[0],
                         upper=param.ratio_bounds[1],
@@ -162,7 +163,7 @@ class ConstraintChecker:
             else:
                 result.append(
                     self._build_equality_residual(
-                        label=f"未勾选置零:一体化高炉炉料:{param.name}[row={row}]",
+                        label=f"未勾选置零:{field.SHEET_BF_BURDEN}:{param.name}[row={row}]",
                         value=value,
                         target=0.0,
                     )

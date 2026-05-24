@@ -2,7 +2,7 @@ import logging
 from typing import Dict, Tuple
 
 from .input_data import InputData
-from .utils import enums, field
+from .utils import enums, field, header
 
 
 class VariableData:
@@ -46,15 +46,27 @@ class VariableData:
 
     def read_variables(self):
         self.sinter_ratio = {
-            row: self.workbook.numeric_value(field.SHEET_INTEGRATED_SINTER, row, 5)
+            row: self.input_data.numeric_value_by_header(
+                field.SHEET_INTEGRATED_SINTER,
+                row,
+                header.BlendHeader.integrated_ratio,
+            )
             for row in self.input_data.sinter_rows
         }
         self.pellet_ratio = {
-            row: self.workbook.numeric_value(field.SHEET_INTEGRATED_PELLET, row, 5)
+            row: self.input_data.numeric_value_by_header(
+                field.SHEET_INTEGRATED_PELLET,
+                row,
+                header.BlendHeader.integrated_ratio,
+            )
             for row in self.input_data.pellet_rows
         }
         self.burden_ratio = {
-            row: self.workbook.numeric_value(field.SHEET_BF_BURDEN, row, 7)
+            row: self.input_data.numeric_value_by_header(
+                field.SHEET_BF_BURDEN,
+                row,
+                header.BurdenHeader.integrated_ratio,
+            )
             for row in self.input_data.burden_rows
         }
         logging.info(
@@ -303,60 +315,61 @@ class VariableData:
 
     def _compare_indirect_parameters(self):
         for row, param in self.input_data.sinter_params.items():
-            self._compare(f"param sinter row {row} unit_price", param.unit_price, field.SHEET_INTEGRATED_SINTER, row, 6)
-            for idx, comp in enumerate(enums.COMPONENTS):
-                self._compare(f"param sinter row {row} {comp}", param.chemical_content[comp], field.SHEET_INTEGRATED_SINTER, row, 7 + idx)
-            self._compare(f"param sinter row {row} moisture", param.moisture, field.SHEET_INTEGRATED_SINTER, row, 25)
-            self._compare(f"param sinter row {row} burning_loss", param.burning_loss, field.SHEET_INTEGRATED_SINTER, row, 26)
+            self._compare_by_header(f"param sinter row {row} unit_price", param.unit_price, field.SHEET_INTEGRATED_SINTER, row, header.BlendHeader.unit_price)
+            for comp in enums.COMPONENTS:
+                self._compare_by_header(f"param sinter row {row} {comp}", param.chemical_content[comp], field.SHEET_INTEGRATED_SINTER, row, comp)
+            self._compare_by_header(f"param sinter row {row} moisture", param.moisture, field.SHEET_INTEGRATED_SINTER, row, header.BlendHeader.moisture)
+            self._compare_by_header(f"param sinter row {row} burning_loss", param.burning_loss, field.SHEET_INTEGRATED_SINTER, row, header.BlendHeader.burning_loss)
         for row, param in self.input_data.pellet_params.items():
-            self._compare(f"param pellet row {row} unit_price", param.unit_price, field.SHEET_INTEGRATED_PELLET, row, 6)
-            for idx, comp in enumerate(enums.COMPONENTS):
-                self._compare(f"param pellet row {row} {comp}", param.chemical_content[comp], field.SHEET_INTEGRATED_PELLET, row, 7 + idx)
-            self._compare(f"param pellet row {row} moisture", param.moisture, field.SHEET_INTEGRATED_PELLET, row, 25)
-            self._compare(f"param pellet row {row} burning_loss", param.burning_loss, field.SHEET_INTEGRATED_PELLET, row, 26)
+            self._compare_by_header(f"param pellet row {row} unit_price", param.unit_price, field.SHEET_INTEGRATED_PELLET, row, header.BlendHeader.unit_price)
+            for comp in enums.COMPONENTS:
+                self._compare_by_header(f"param pellet row {row} {comp}", param.chemical_content[comp], field.SHEET_INTEGRATED_PELLET, row, comp)
+            self._compare_by_header(f"param pellet row {row} moisture", param.moisture, field.SHEET_INTEGRATED_PELLET, row, header.BlendHeader.moisture)
+            self._compare_by_header(f"param pellet row {row} burning_loss", param.burning_loss, field.SHEET_INTEGRATED_PELLET, row, header.BlendHeader.burning_loss)
         for row, item in self.input_data.coke_params.items():
-            self._compare(f"param coke row {row} dry_unit", item.dry_unit_consumption, field.SHEET_BF_COKE, row, 26)
-            self._compare(f"param coke row {row} gross_dry_unit", item.gross_dry_unit_consumption, field.SHEET_BF_COKE, row, 28)
-            self._compare(f"param coke row {row} return_fines", item.return_fines, field.SHEET_BF_COKE, row, 30)
+            self._compare_by_header(f"param coke row {row} dry_unit", item.dry_unit_consumption, field.SHEET_BF_COKE, row, header.FuelRatioHeader.integrated_dry_unit)
+            self._compare_by_header(f"param coke row {row} gross_dry_unit", item.gross_dry_unit_consumption, field.SHEET_BF_COKE, row, header.FuelRatioHeader.integrated_gross_dry_unit)
+            self._compare_by_header(f"param coke row {row} return_fines", item.return_fines, field.SHEET_BF_COKE, row, header.FuelRatioHeader.integrated_return_fines)
         for row, item in self.input_data.coal_params.items():
-            self._compare(f"param coal row {row} dry_unit", item.dry_unit_consumption, field.SHEET_BF_COAL, row, 26)
+            self._compare_by_header(f"param coal row {row} dry_unit", item.dry_unit_consumption, field.SHEET_BF_COAL, row, header.FuelRatioHeader.integrated_dry_unit)
 
     def _compare_auxiliary_variables(self):
         for row in self.input_data.sinter_rows:
-            self._compare(f"var sinter row {row} integrated_dry_basis", self.sinter_dry_basis[row], field.SHEET_INTEGRATED_SINTER, row, 28)
-            self._compare(f"var sinter row {row} integrated_burn_save", self.sinter_burn_save[row], field.SHEET_INTEGRATED_SINTER, row, 30)
+            self._compare_by_header(f"var sinter row {row} integrated_dry_basis", self.sinter_dry_basis[row], field.SHEET_INTEGRATED_SINTER, row, header.BlendHeader.integrated_dry_basis)
+            self._compare_by_header(f"var sinter row {row} integrated_burn_save", self.sinter_burn_save[row], field.SHEET_INTEGRATED_SINTER, row, header.BlendHeader.integrated_burn_save)
         for row in self.input_data.pellet_rows:
-            self._compare(f"var pellet row {row} integrated_dry_basis", self.pellet_dry_basis[row], field.SHEET_INTEGRATED_PELLET, row, 28)
-            self._compare(f"var pellet row {row} integrated_burn_save", self.pellet_burn_save[row], field.SHEET_INTEGRATED_PELLET, row, 30)
+            self._compare_by_header(f"var pellet row {row} integrated_dry_basis", self.pellet_dry_basis[row], field.SHEET_INTEGRATED_PELLET, row, header.BlendHeader.integrated_dry_basis)
+            self._compare_by_header(f"var pellet row {row} integrated_burn_save", self.pellet_burn_save[row], field.SHEET_INTEGRATED_PELLET, row, header.BlendHeader.integrated_burn_save)
 
-        for idx, comp in enumerate(enums.PRODUCT_COMPONENTS, start=2):
-            self._compare(f"var sinter composition {comp}", self.sinter_composition[comp], field.SHEET_SINTER_COMPOSITION, idx, 6)
-            self._compare(f"var pellet composition {comp}", self.pellet_composition[comp], field.SHEET_PELLET_COMPOSITION, idx, 6)
-        for idx, name in enumerate(enums.SINTER_INDICATORS, start=2):
-            self._compare(f"var sinter indicator {name}", self.sinter_indicator[name], field.SHEET_SINTER_INDICATOR, idx, 6)
+        for comp in enums.PRODUCT_COMPONENTS:
+            self._compare_named_value(f"var sinter composition {comp}", self.sinter_composition[comp], field.SHEET_SINTER_COMPOSITION, comp)
+            self._compare_named_value(f"var pellet composition {comp}", self.pellet_composition[comp], field.SHEET_PELLET_COMPOSITION, comp)
+        for name in enums.SINTER_INDICATORS:
+            self._compare_named_value(f"var sinter indicator {name}", self.sinter_indicator[name], field.SHEET_SINTER_INDICATOR, name)
 
         for row, param in self.input_data.burden_params.items():
             if not param.selected:
                 continue
-            self._compare(f"var burden row {row} unit_price", self.burden_unit_price[row], field.SHEET_BF_BURDEN, row, 8)
-            for idx, comp in enumerate(enums.PRODUCT_COMPONENTS):
-                self._compare(f"var burden row {row} {comp}", self.burden_content[row, comp], field.SHEET_BF_BURDEN, row, 9 + idx)
-            self._compare(f"var burden row {row} dry_unit", self.burden_dry_unit[row], field.SHEET_BF_BURDEN, row, 30)
-            self._compare(f"var burden row {row} gross_dry_unit", self.burden_gross_dry_unit[row], field.SHEET_BF_BURDEN, row, 32)
-            self._compare(f"var burden row {row} return_price", self.burden_return_price[row], field.SHEET_BF_BURDEN, row, 33)
-            self._compare(f"var burden row {row} return_fines", self.burden_return_fines[row], field.SHEET_BF_BURDEN, row, 35)
+            self._compare_by_header(f"var burden row {row} unit_price", self.burden_unit_price[row], field.SHEET_BF_BURDEN, row, header.BurdenHeader.unit_price)
+            for comp in enums.PRODUCT_COMPONENTS:
+                self._compare_by_header(f"var burden row {row} {comp}", self.burden_content[row, comp], field.SHEET_BF_BURDEN, row, comp)
+            self._compare_by_header(f"var burden row {row} dry_unit", self.burden_dry_unit[row], field.SHEET_BF_BURDEN, row, header.BurdenHeader.integrated_dry_unit)
+            self._compare_by_header(f"var burden row {row} gross_dry_unit", self.burden_gross_dry_unit[row], field.SHEET_BF_BURDEN, row, header.BurdenHeader.integrated_gross_dry_unit)
+            self._compare_by_header(f"var burden row {row} return_price", self.burden_return_price[row], field.SHEET_BF_BURDEN, row, header.BurdenHeader.return_fines_price)
+            self._compare_by_header(f"var burden row {row} return_fines", self.burden_return_fines[row], field.SHEET_BF_BURDEN, row, header.BurdenHeader.integrated_return_fines)
 
-        for idx, hm_name in enumerate(enums.HOT_METAL_ROWS, start=2):
-            self._compare(f"var hot metal composition {hm_name}", self.hot_metal_composition[hm_name], field.SHEET_HOT_METAL_COMPOSITION, idx, 6)
-        self._compare("var hot metal grade", self.hot_metal_grade, field.SHEET_HOT_METAL_COMPOSITION, 19, 6)
+        for hm_name in enums.HOT_METAL_ROWS:
+            self._compare_named_value(f"var hot metal composition {hm_name}", self.hot_metal_composition[hm_name], field.SHEET_HOT_METAL_COMPOSITION, hm_name)
+        self._compare_named_value("var hot metal grade", self.hot_metal_grade, field.SHEET_HOT_METAL_COMPOSITION, "品位")
 
-        for idx, comp in enumerate(enums.PRODUCT_COMPONENTS, start=2):
-            self._compare(f"var slag amount {comp}", self.slag_amount[comp], field.SHEET_SLAG_AMOUNT, idx, 4)
-            self._compare(f"var slag composition {comp}", self.slag_composition[comp], field.SHEET_SLAG_COMPOSITION, idx, 6)
-        for idx, name in enumerate(enums.SLAG_ALKALINITIES, start=2):
-            self._compare(f"var slag alkalinity {name}", self.slag_alkalinity[name], field.SHEET_SLAG_ALKALINITY, idx, 6)
-        for idx, name in enumerate(enums.HARMFUL_LOAD_COMPONENT, start=2):
-            self._compare(f"var harmful load {name}", self.harmful_load[name], field.SHEET_HARMFUL_LOAD, idx, 6)
+        for comp in enums.PRODUCT_COMPONENTS:
+            self._compare_named_value(f"var slag composition {comp}", self.slag_composition[comp], field.SHEET_SLAG_COMPOSITION, comp)
+        for name in enums.SLAG_ALKALINITIES:
+            self._compare_named_value(f"var slag alkalinity {name}", self.slag_alkalinity[name], field.SHEET_SLAG_ALKALINITY, name)
+        for name in enums.HARMFUL_LOAD_COMPONENT:
+            self._compare_named_value(f"var harmful load {name}", self.harmful_load[name], field.SHEET_HARMFUL_LOAD, name)
+        for row_index, comp in enumerate(enums.PRODUCT_COMPONENTS, start=2):
+            self._compare(f"var slag amount {comp}", self.slag_amount[comp], field.SHEET_SLAG_AMOUNT, row_index, 4)
         self._compare("var hot metal cost", self.hot_metal_cost, field.SHEET_HOT_METAL_COST, 2, 2)
 
     def _compare(self, label: str, calculated: float, sheet: str, row: int, col: int, tol: float = 1e-6):
@@ -376,6 +389,34 @@ class VariableData:
                 "CHECK PASS %-55s excel=% .12g calc=% .12g diff=% .3g cell=%s!%s%s",
                 label, expected, calculated, diff, sheet, self._col_letter(col), row,
             )
+
+    def _compare_by_header(self, label: str, calculated: float, sheet: str, row: int, header_name: str, tol: float = 1e-6):
+        self._compare(
+            label=label,
+            calculated=calculated,
+            sheet=sheet,
+            row=row,
+            col=self.input_data.header_col(sheet, header_name),
+            tol=tol,
+        )
+
+    def _compare_named_value(self, label: str, calculated: float, sheet: str, item_name: str, tol: float = 1e-6):
+        row = self._find_named_row(sheet, item_name)
+        self._compare_by_header(
+            label=label,
+            calculated=calculated,
+            sheet=sheet,
+            row=row,
+            header_name=header.BoundHeader.integrated_value,
+            tol=tol,
+        )
+
+    def _find_named_row(self, sheet: str, item_name: str) -> int:
+        name_col = self.input_data.header_col(sheet, header.BoundHeader.name)
+        row = self.workbook.find_row_by_value(sheet, name_col, item_name)
+        if row is None:
+            raise KeyError(f"Row not found in {sheet}: {item_name}")
+        return row
 
     @staticmethod
     def _safe_div(numerator: float, denominator: float) -> float:
