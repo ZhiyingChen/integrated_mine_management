@@ -1,10 +1,11 @@
 import logging
 import os
+import re
 from typing import Dict, List, Tuple, Optional
 
 from . import domain_object as do
 from .utils import enums, field, header
-from .utils.xlsx import WorkbookReader
+from .utils.xlsx import WorkbookReader, split_ref
 
 
 BASE_MATERIAL_SHEETS = [
@@ -40,6 +41,7 @@ class InputData:
         self.excel_path = os.path.join(exe_folder, field.DATA_DIR, excel_filename)
         self.workbook = WorkbookReader(self.excel_path)
         self._header_maps: Dict[str, Dict[str, int]] = {}
+        self._formula_value_cache: Dict[Tuple[str, int, int], float] = {}
 
         self.base_material_dict: Dict[str, do.BaseMaterial] = {}
         self.base_material_by_sheet: Dict[str, Dict[str, do.BaseMaterial]] = {}
@@ -189,9 +191,9 @@ class InputData:
 
     def load_process_costs(self):
         self.process_cost = do.ProcessCost(
-            sinter=self.workbook.numeric_value(field.SHEET_SINTER_PROCESS_COST, 27, 4),
-            pellet=self.workbook.numeric_value(field.SHEET_PELLET_PROCESS_COST, 24, 4),
-            blast_furnace=self.workbook.numeric_value(field.SHEET_BF_PROCESS_COST, 35, 4),
+            sinter=self.formula_numeric_value(field.SHEET_SINTER_PROCESS_COST, 27, 4),
+            pellet=self.formula_numeric_value(field.SHEET_PELLET_PROCESS_COST, 24, 4),
+            blast_furnace=self.formula_numeric_value(field.SHEET_BF_PROCESS_COST, 35, 4),
         )
         logging.info("process cost: %s", self.process_cost)
 
@@ -321,6 +323,64 @@ class InputData:
             self.header_col(sheet_name, header_name),
             default=default,
         )
+
+    def formula_numeric_value(self, sheet_name: str, row: int, col: int, default: float = 0.0) -> float:
+        key = (sheet_name, row, col)
+        if key in self._formula_value_cache:
+            return self._formula_value_cache[key]
+
+        cell = self.workbook.cell(sheet_name, row, col)
+        if cell.formula:
+            value = self._evaluate_formula(sheet_name, cell.formula)
+        else:
+            value = self.workbook.numeric_value(sheet_name, row, col, default=default)
+        self._formula_value_cache[key] = value
+        return value
+
+    def _evaluate_formula(self, sheet_name: str, formula: str) -> float:
+        expr = formula[1:] if formula.startswith("=") else formula
+        expr = expr.strip().upper()
+
+        sum_match = re.fullmatch(r"SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)", expr)
+        if sum_match:
+            start_col, start_row, end_col, end_row = sum_match.groups()
+            start = split_ref(f"{start_col}{start_row}")
+            end = split_ref(f"{end_col}{end_row}")
+            total = 0.0
+            for row in range(start[0], end[0] + 1):
+                for col in range(start[1], end[1] + 1):
+                    total += self.formula_numeric_value(sheet_name, row, col)
+            return total
+
+        sum_list_match = re.fullmatch(r"SUM\(([A-Z]+\d+(?:,[A-Z]+\d+)*)\)", expr)
+        if sum_list_match:
+            total = 0.0
+            for ref in sum_list_match.group(1).split(","):
+                ref_row, ref_col = split_ref(ref)
+                total += self.formula_numeric_value(sheet_name, ref_row, ref_col)
+            return total
+
+        mul_match = re.fullmatch(r"([A-Z]+\d+)\*([A-Z]+\d+)", expr)
+        if mul_match:
+            left_ref, right_ref = mul_match.groups()
+            left_row, left_col = split_ref(left_ref)
+            right_row, right_col = split_ref(right_ref)
+            return (
+                self.formula_numeric_value(sheet_name, left_row, left_col)
+                * self.formula_numeric_value(sheet_name, right_row, right_col)
+            )
+
+        total = 0.0
+        for sign, token in re.findall(r"([+-]?)([A-Z]+\d+|\d+(?:\.\d+)?)", expr):
+            factor = -1.0 if sign == "-" else 1.0
+            if re.fullmatch(r"[A-Z]+\d+", token):
+                ref_row, ref_col = split_ref(token)
+                total += factor * self.formula_numeric_value(sheet_name, ref_row, ref_col)
+            else:
+                total += factor * float(token)
+        if re.sub(r"[+-]?(?:[A-Z]+\d+|\d+(?:\.\d+)?)", "", expr):
+            raise ValueError(f"Unsupported formula in {sheet_name}: {formula}")
+        return total
 
     def find_material(self, name: str, sheets: List[str]) -> Optional[do.BaseMaterial]:
         for sheet in sheets:

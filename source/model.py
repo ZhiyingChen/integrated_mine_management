@@ -63,8 +63,8 @@ class Model:
         selected_ore_rows = sorted(
             ore_rows,
             key=lambda row: (
+                params[row].unit_price / max(params[row].chemical_content.get("TFe", 1e-9), 1e-9),
                 -params[row].chemical_content.get("TFe", 0.0),
-                params[row].unit_price,
                 row,
             ),
         )[:limit]
@@ -146,17 +146,23 @@ class Model:
         self._last_eval_variable_data = variable_data
         return variable_data
 
-    def objective_feasibility(self, x: Sequence[float]) -> float:
+    def objective_feasibility(self, x: Sequence[float], include_hot_metal_cost_limit: bool = False) -> float:
         variable_data = self.calculate_variable_data(x)
-        return self.checker.business_violation_penalty(variable_data)
+        return self.checker.business_violation_penalty(
+            variable_data,
+            include_hot_metal_cost_limit=include_hot_metal_cost_limit,
+        )
 
     def objective_cost(self, x: Sequence[float]) -> float:
         variable_data = self.calculate_variable_data(x)
         return variable_data.hot_metal_cost + self.COST_PENALTY_WEIGHT * self.checker.business_violation_penalty(variable_data)
 
-    def nonlinear_ineq_residuals(self, x: Sequence[float]):
+    def nonlinear_ineq_residuals(self, x: Sequence[float], include_hot_metal_cost_limit: bool = True):
         variable_data = self.calculate_variable_data(x)
-        return self.checker.scipy_ineq_values(variable_data)
+        return self.checker.scipy_ineq_values(
+            variable_data,
+            include_hot_metal_cost_limit=include_hot_metal_cost_limit,
+        )
 
     def generate_core_constraints(self):
         return [
@@ -183,8 +189,17 @@ class Model:
             },
         ]
 
-    def generate_constraints(self):
-        return self.generate_core_constraints()
+    def generate_constraints(self, include_hot_metal_cost_limit: bool = True):
+        return self.generate_core_constraints() + [
+            {
+                "type": "ineq",
+                "fun": lambda x: self.nonlinear_ineq_residuals(
+                    x,
+                    include_hot_metal_cost_limit=include_hot_metal_cost_limit,
+                ),
+                "name": "business_bounds",
+            }
+        ]
 
     def summarize_solution(self, x: Sequence[float]):
         variable_data = self.calculate_variable_data(x)
@@ -198,15 +213,21 @@ class Model:
         )
         return variable_data
 
-    def _build_iteration_callback(self, phase: str, objective):
+    def _build_iteration_callback(self, phase: str, objective, include_hot_metal_cost_limit: bool):
         iteration = {"count": 0}
 
         def callback(xk):
             iteration["count"] += 1
             variable_data = self.calculate_variable_data(xk)
             objective_value = objective(xk)
-            penalty = self.checker.business_violation_penalty(variable_data)
-            max_violation = self.checker.max_business_violation(variable_data)
+            penalty = self.checker.business_violation_penalty(
+                variable_data,
+                include_hot_metal_cost_limit=include_hot_metal_cost_limit,
+            )
+            max_violation = self.checker.max_business_violation(
+                variable_data,
+                include_hot_metal_cost_limit=include_hot_metal_cost_limit,
+            )
             print(
                 "SCIPY ITER "
                 f"phase={phase} "
@@ -234,7 +255,14 @@ class Model:
             raise RuntimeError("当前 Python 环境缺少 scipy，无法运行求解器。") from exc
 
         x0 = self.generate_initial_x()
-        objective = self.objective_feasibility if mode == "feasibility" else self.objective_cost
+        include_cost_limit = mode != "feasibility"
+        if mode in ("feasibility", "full_feasibility"):
+            objective = lambda x: self.objective_feasibility(
+                x,
+                include_hot_metal_cost_limit=include_cost_limit,
+            )
+        else:
+            objective = self.objective_cost
         phase_name = phase or mode
         start = time.time()
         result = minimize(
@@ -242,8 +270,12 @@ class Model:
             x0,
             method="SLSQP",
             bounds=self.generate_bounds(),
-            constraints=self.generate_core_constraints(),
-            callback=self._build_iteration_callback(phase_name, objective) if show_iterations else None,
+            constraints=self.generate_constraints(include_hot_metal_cost_limit=include_cost_limit),
+            callback=self._build_iteration_callback(
+                phase_name,
+                objective,
+                include_hot_metal_cost_limit=include_cost_limit,
+            ) if show_iterations else None,
             options={
                 "maxiter": maxiter,
                 "ftol": ftol,

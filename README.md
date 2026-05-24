@@ -117,3 +117,7 @@ python3 scripts/benchmark_scipy_no_count.py --mode cost
 
 - `logs/running_results.log`
 - `logs/warning.log`
+- `logs/runs/<run_id>/running_results.log`
+- `logs/runs/<run_id>/warning.log`
+
+`logs/running_results.log` 和 `logs/warning.log` 是最近一次运行的日志；`logs/runs/<run_id>/` 是每次运行的归档日志。判断某个 Excel 是否由某次运行写出，以该次日志中的 `EXCEL WRITE` 记录为准；如果日志出现 `NO EXCEL WRITE`，说明该次运行没有覆盖 Excel。

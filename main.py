@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 
 from source.input_data import InputData
@@ -49,6 +50,7 @@ def main():
     initial_total, initial_failed = checker.validate_and_log(
         initial_variable_data,
         stage="[INITIAL]",
+        include_hot_metal_cost_limit=False,
     )
     initial_feasible = initial_failed == 0
     print(
@@ -57,17 +59,49 @@ def main():
         f"nit={getattr(initial_result, 'nit', None)} "
         f"business_feasible={initial_feasible} "
         f"failed={initial_failed}/{initial_total} "
-        f"max_business_violation={checker.max_business_violation(initial_variable_data):.12g}",
+        f"max_business_violation={checker.max_business_violation(initial_variable_data, include_hot_metal_cost_limit=False):.12g} "
+        f"hot_metal_cost={initial_variable_data.hot_metal_cost:.12g}",
         flush=True,
     )
     if not initial_feasible:
+        logging.error("NO EXCEL WRITE: initial_solution is not business feasible; skip cost optimization and Excel write.")
         print("initial_solution is not business feasible; skip cost optimization and Excel write.", flush=True)
+        return 1
+
+    full_feasibility_model = Model(
+        input_data=input_data,
+        initial_x=initial_model.solution_dict(initial_result.x),
+        active_rows=initial_model.active_rows,
+    )
+    full_feasibility_result = full_feasibility_model.run_model(
+        mode="full_feasibility",
+        maxiter=args.initial_maxiter,
+        ftol=args.ftol,
+        phase="full_feasibility",
+        show_iterations=not args.quiet_scipy,
+    )
+    full_feasibility_variable_data = full_feasibility_model.calculate_variable_data(full_feasibility_result.x)
+    full_total, full_failed = checker.validate_and_log(full_feasibility_variable_data, stage="[FULL_FEASIBILITY]")
+    full_feasible = full_failed == 0
+    print(
+        "full_feasibility "
+        f"success={full_feasibility_result.success} "
+        f"nit={getattr(full_feasibility_result, 'nit', None)} "
+        f"business_feasible={full_feasible} "
+        f"failed={full_failed}/{full_total} "
+        f"max_business_violation={checker.max_business_violation(full_feasibility_variable_data):.12g} "
+        f"hot_metal_cost={full_feasibility_variable_data.hot_metal_cost:.12g}",
+        flush=True,
+    )
+    if not full_feasible:
+        logging.error("NO EXCEL WRITE: full_feasibility is not business feasible; skip cost optimization and Excel write.")
+        print("full_feasibility is not business feasible; skip cost optimization and Excel write.", flush=True)
         return 1
 
     cost_model = Model(
         input_data=input_data,
-        initial_x=initial_model.solution_dict(initial_result.x),
-        active_rows=initial_model.active_rows,
+        initial_x=full_feasibility_model.solution_dict(full_feasibility_result.x),
+        active_rows=full_feasibility_model.active_rows,
     )
     result = cost_model.run_model(
         mode="cost",
@@ -89,6 +123,7 @@ def main():
         flush=True,
     )
     if not final_feasible:
+        logging.error("NO EXCEL WRITE: final_solution is not business feasible; skip Excel write.")
         print("final_solution is not business feasible; skip Excel write.", flush=True)
         return 1
 
@@ -100,6 +135,7 @@ def main():
         output_filename=output_filename,
         overwrite_source=not args.copy,
     )
+    logging.info("EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g", output_path, variable_data.hot_metal_cost)
     print(f"hot_metal_cost={variable_data.hot_metal_cost}")
     print(f"output={output_path}")
     return 0

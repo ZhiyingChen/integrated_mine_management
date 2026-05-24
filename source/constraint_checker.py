@@ -22,11 +22,24 @@ class ConstraintResidual:
 
 
 class ConstraintChecker:
+    HOT_METAL_COST_LIMIT_LABEL = "目标上限:一体化铁水成本≤参考铁成本"
+
     def __init__(self, input_data: InputData):
         self.input_data = input_data
 
-    def model_ineq_residuals(self, variable_data: VariableData) -> List[ConstraintResidual]:
-        return self.count_and_objective_residuals(variable_data) + self.bound_residuals(variable_data)
+    def model_ineq_residuals(
+        self,
+        variable_data: VariableData,
+        include_hot_metal_cost_limit: bool = True,
+    ) -> List[ConstraintResidual]:
+        residuals = self.count_and_objective_residuals(variable_data) + self.bound_residuals(variable_data)
+        if include_hot_metal_cost_limit:
+            return residuals
+        return [
+            residual
+            for residual in residuals
+            if residual.label != self.HOT_METAL_COST_LIMIT_LABEL
+        ]
 
     def parameter_logic_residuals(self) -> List[ConstraintResidual]:
         result: List[ConstraintResidual] = []
@@ -116,7 +129,7 @@ class ConstraintChecker:
                 upper=self.input_data.param_dict.get("球团铁矿粉仓数≤", 0.0),
             ),
             self._build_bound_residual(
-                label="目标上限:一体化铁水成本≤参考铁成本",
+                label=self.HOT_METAL_COST_LIMIT_LABEL,
                 value=variable_data.hot_metal_cost,
                 lower=0.0,
                 upper=self.input_data.param_dict.get("参考铁成本", 0.0),
@@ -227,9 +240,16 @@ class ConstraintChecker:
             + self.bound_residuals(variable_data)
         )
 
-    def scipy_ineq_values(self, variable_data: VariableData) -> List[float]:
+    def scipy_ineq_values(
+        self,
+        variable_data: VariableData,
+        include_hot_metal_cost_limit: bool = True,
+    ) -> List[float]:
         values = []
-        for residual in self.model_ineq_residuals(variable_data):
+        for residual in self.model_ineq_residuals(
+            variable_data,
+            include_hot_metal_cost_limit=include_hot_metal_cost_limit,
+        ):
             values.append(residual.lower_residual)
             values.append(residual.upper_residual)
         return values
@@ -237,15 +257,42 @@ class ConstraintChecker:
     def violation_penalty(self, variable_data: VariableData) -> float:
         return self._violation_penalty(self.model_ineq_residuals(variable_data))
 
-    def business_violation_penalty(self, variable_data: VariableData) -> float:
-        return self._violation_penalty(self.all_business_residuals(variable_data))
+    def business_residuals_without_hot_metal_cost_limit(self, variable_data: VariableData) -> List[ConstraintResidual]:
+        return [
+            residual
+            for residual in self.all_business_residuals(variable_data)
+            if residual.label != self.HOT_METAL_COST_LIMIT_LABEL
+        ]
 
-    def max_business_violation(self, variable_data: VariableData) -> float:
-        violations = [residual.violation for residual in self.all_business_residuals(variable_data)]
+    def business_violation_penalty(self, variable_data: VariableData, include_hot_metal_cost_limit: bool = True) -> float:
+        residuals = (
+            self.all_business_residuals(variable_data)
+            if include_hot_metal_cost_limit
+            else self.business_residuals_without_hot_metal_cost_limit(variable_data)
+        )
+        return self._violation_penalty(residuals)
+
+    def max_business_violation(self, variable_data: VariableData, include_hot_metal_cost_limit: bool = True) -> float:
+        residuals = (
+            self.all_business_residuals(variable_data)
+            if include_hot_metal_cost_limit
+            else self.business_residuals_without_hot_metal_cost_limit(variable_data)
+        )
+        violations = [residual.violation for residual in residuals]
         return max(violations) if violations else 0.0
 
-    def is_business_feasible(self, variable_data: VariableData, tol: float = 1e-6) -> bool:
-        for residual in self.all_business_residuals(variable_data):
+    def is_business_feasible(
+        self,
+        variable_data: VariableData,
+        tol: float = 1e-6,
+        include_hot_metal_cost_limit: bool = True,
+    ) -> bool:
+        residuals = (
+            self.all_business_residuals(variable_data)
+            if include_hot_metal_cost_limit
+            else self.business_residuals_without_hot_metal_cost_limit(variable_data)
+        )
+        for residual in residuals:
             scale = max(1.0, abs(residual.lower), abs(residual.upper))
             if residual.violation > tol * scale:
                 return False
@@ -264,11 +311,22 @@ class ConstraintChecker:
         violations = [residual.violation for residual in self.model_ineq_residuals(variable_data)]
         return max(violations) if violations else 0.0
 
-    def validate_and_log(self, variable_data: VariableData, tol: float = 1e-6, stage: str = ""):
+    def validate_and_log(
+        self,
+        variable_data: VariableData,
+        tol: float = 1e-6,
+        stage: str = "",
+        include_hot_metal_cost_limit: bool = True,
+    ):
         total = 0
         failed = 0
         prefix = f"{stage} " if stage else ""
-        for residual in self.all_business_residuals(variable_data):
+        residuals = (
+            self.all_business_residuals(variable_data)
+            if include_hot_metal_cost_limit
+            else self.business_residuals_without_hot_metal_cost_limit(variable_data)
+        )
+        for residual in residuals:
             total += 1
             scale = max(1.0, abs(residual.lower), abs(residual.upper))
             ok = residual.violation <= tol * scale
