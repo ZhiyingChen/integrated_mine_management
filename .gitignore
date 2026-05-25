@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
-logs/*.log
+logs/
 data/
 .idea/
+log/
