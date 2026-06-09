@@ -53,15 +53,29 @@ python3 main.py
   关闭控制台逐迭代输出。
 - `--output xxx.xlsx`
   仅在非原地写回时指定输出副本文件名。
+- `--search-active-set`
+  显式启用活跃物料集合搜索；当前默认已经启用，保留该参数只是为了兼容旧命令。
+- `--no-search-active-set`
+  关闭活跃物料集合搜索，回退到旧的单组活跃物料集合流程。
+- `--active-set-candidate-limit 24`
+  控制活跃物料集合搜索最多评估多少组候选。
 
 ```bash
 python3 main.py
 ```
 
+默认会启用活跃物料集合搜索。搜索候选包括基准值配比集合、高 TFe 集合、低成本/高铁集合，以及围绕这些集合的一换一组合。基准值候选只读取 `基准值配比` 列；如果没有基准值，则不会把 Excel 当前 `一体化配比` 当作候选来源。
+
 如果想输出到 Excel 副本而不是覆盖原始文件：
 
 ```bash
 python3 main.py --copy --output result.xlsx
+```
+
+如果想临时回退旧流程：
+
+```bash
+python3 main.py --no-search-active-set
 ```
 
 当前写回的核心变量列：

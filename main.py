@@ -6,6 +6,7 @@ from source.input_data import InputData
 from source.model import Model
 from source.result_storage import ResultStorage
 from source.constraint_checker import ConstraintChecker
+from source.active_set_search import ActiveSetSearch
 from source.utils import field, log
 
 
@@ -52,13 +53,66 @@ def main():
         action="store_true",
         help="Disable per-iteration scipy console output.",
     )
+    parser.add_argument(
+        "--search-active-set",
+        action="store_true",
+        dest="search_active_set",
+        help="Try multiple active material sets before writing the best result. Enabled by default.",
+    )
+    parser.add_argument(
+        "--no-search-active-set",
+        action="store_false",
+        dest="search_active_set",
+        help="Disable active material set search and run the legacy single-active-set flow.",
+    )
+    parser.add_argument(
+        "--active-set-candidate-limit",
+        type=int,
+        default=24,
+        help="Maximum number of active material set candidates to evaluate.",
+    )
+    parser.set_defaults(search_active_set=True)
     args = parser.parse_args()
 
     log.setup_log(log_dir="logs")
     input_data = InputData(exe_folder="./")
     input_data.read_data()
+    logging.info("RUN MODE: active_set_search=%s", args.search_active_set)
+    print(f"run_mode active_set_search={args.search_active_set}", flush=True)
 
     checker = ConstraintChecker(input_data=input_data)
+    if args.search_active_set:
+        search_result = ActiveSetSearch(
+            input_data=input_data,
+            initial_maxiter=args.initial_maxiter,
+            cost_maxiter=args.cost_maxiter,
+            ftol=args.ftol,
+            candidate_limit=args.active_set_candidate_limit,
+        ).run()
+        final_total, final_failed = checker.validate_and_log(search_result.variable_data, stage="[SEARCH_BEST]")
+        final_feasible = final_failed == 0
+        print(
+            "active_set_search "
+            f"best={search_result.candidate.name} "
+            f"stage={search_result.stage} "
+            f"business_feasible={final_feasible} "
+            f"failed={final_failed}/{final_total} "
+            f"max_business_violation={checker.max_business_violation(search_result.variable_data):.12g} "
+            f"hot_metal_cost={search_result.hot_metal_cost:.12g}",
+            flush=True,
+        )
+        if not final_feasible:
+            logging.warning("active_set_search best result is not business feasible; write best available solution.")
+            print("active_set_search best result is not business feasible; write best available solution.", flush=True)
+        write_solution(
+            input_data=input_data,
+            variable_data=search_result.variable_data,
+            args=args,
+            final_feasible=final_feasible,
+            final_failed=final_failed,
+            final_total=final_total,
+        )
+        return 0
 
     initial_model = Model(input_data=input_data)
     initial_result = initial_model.run_model(
