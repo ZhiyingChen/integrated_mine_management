@@ -1,5 +1,5 @@
 EXCEL_FILENAME = "智能配矿一体化.xlsx"
-DATA_DIR = "data"
+DATA_DIR = "./"
 LOG_DIR = "logs"
 
 SHEET_SINTER_ORE = "烧结铁矿粉"
