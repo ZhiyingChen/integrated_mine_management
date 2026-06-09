@@ -14,6 +14,28 @@ def default_output_filename() -> str:
     return f"{name}_scipy_cost{ext}"
 
 
+def write_solution(input_data: InputData, variable_data, args, final_feasible: bool, final_failed: int, final_total: int) -> str:
+    output_filename = (args.output or default_output_filename()) if args.copy else None
+    output_path = ResultStorage(input_data=input_data).write_core_variables_to_excel(
+        sinter_ratio=variable_data.sinter_ratio,
+        pellet_ratio=variable_data.pellet_ratio,
+        burden_ratio=variable_data.burden_ratio,
+        output_filename=output_filename,
+        overwrite_source=not args.copy,
+    )
+    logging.info(
+        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s",
+        output_path,
+        variable_data.hot_metal_cost,
+        final_feasible,
+        final_failed,
+        final_total,
+    )
+    print(f"hot_metal_cost={variable_data.hot_metal_cost}")
+    print(f"output={output_path}")
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Find initial feasible solution, optimize cost, and write core variables back to Excel.")
     parser.add_argument("--initial-maxiter", type=int, default=300)
@@ -64,9 +86,17 @@ def main():
         flush=True,
     )
     if not initial_feasible:
-        logging.error("NO EXCEL WRITE: initial_solution is not business feasible; skip cost optimization and Excel write.")
-        print("initial_solution is not business feasible; skip cost optimization and Excel write.", flush=True)
-        return 1
+        logging.warning("initial_solution is not business feasible; write initial solution and skip downstream optimization.")
+        print("initial_solution is not business feasible; write initial solution and skip downstream optimization.", flush=True)
+        write_solution(
+            input_data=input_data,
+            variable_data=initial_variable_data,
+            args=args,
+            final_feasible=False,
+            final_failed=initial_failed,
+            final_total=initial_total,
+        )
+        return 0
 
     full_feasibility_model = Model(
         input_data=input_data,
@@ -94,9 +124,8 @@ def main():
         flush=True,
     )
     if not full_feasible:
-        logging.error("NO EXCEL WRITE: full_feasibility is not business feasible; skip cost optimization and Excel write.")
-        print("full_feasibility is not business feasible; skip cost optimization and Excel write.", flush=True)
-        return 1
+        logging.warning("full_feasibility is not business feasible; continue cost optimization from best available solution.")
+        print("full_feasibility is not business feasible; continue cost optimization from best available solution.", flush=True)
 
     cost_model = Model(
         input_data=input_data,
@@ -123,21 +152,17 @@ def main():
         flush=True,
     )
     if not final_feasible:
-        logging.error("NO EXCEL WRITE: final_solution is not business feasible; skip Excel write.")
-        print("final_solution is not business feasible; skip Excel write.", flush=True)
-        return 1
+        logging.warning("final_solution is not business feasible; write infeasible solution for Excel-side review.")
+        print("final_solution is not business feasible; write infeasible solution for Excel-side review.", flush=True)
 
-    output_filename = (args.output or default_output_filename()) if args.copy else None
-    output_path = ResultStorage(input_data=input_data).write_core_variables_to_excel(
-        sinter_ratio=variable_data.sinter_ratio,
-        pellet_ratio=variable_data.pellet_ratio,
-        burden_ratio=variable_data.burden_ratio,
-        output_filename=output_filename,
-        overwrite_source=not args.copy,
+    write_solution(
+        input_data=input_data,
+        variable_data=variable_data,
+        args=args,
+        final_feasible=final_feasible,
+        final_failed=final_failed,
+        final_total=final_total,
     )
-    logging.info("EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g", output_path, variable_data.hot_metal_cost)
-    print(f"hot_metal_cost={variable_data.hot_metal_cost}")
-    print(f"output={output_path}")
     return 0
 
 

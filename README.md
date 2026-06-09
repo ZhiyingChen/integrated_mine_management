@@ -35,9 +35,9 @@ python3 main.py
 默认行为：
 
 - 先运行 `initial_feasibility` 阶段：核心约束作为 scipy 约束，其余业务约束作为违约惩罚目标。
-- 对 initial solution 做完整业务校验；若失败，不写回 Excel。
+- 对 initial solution 做业务校验；若失败，仍写回该阶段结果，供 Excel 侧检查。
 - 再运行 `cost_optimization` 阶段：从 initial solution 出发优化铁水成本，同时保留业务违约惩罚。
-- 对 final solution 做完整业务校验；若失败，不写回 Excel。
+- 对 final solution 做完整业务校验；若失败，仍写回当前结果，日志中保留失败约束明细。
 - 将核心决策变量直接覆盖写回原始 Excel：
   `data/智能配矿一体化.xlsx`
 
@@ -102,7 +102,7 @@ python3 scripts/validate_business_constraints.py
 - `initial_solution ... business_feasible=...`
 - `final_solution ... business_feasible=...`
 
-`cost_optimization success=False` 只表示 scipy 自身可能达到迭代上限；是否能作为业务结果，以 `final_solution business_feasible=True` 和日志中的 `failed=0` 为准。
+`cost_optimization success=False` 只表示 scipy 自身可能达到迭代上限；是否能作为业务可行结果，以 `final_solution business_feasible=True` 和日志中的 `failed=0` 为准。即使业务约束未全部满足，程序也会写回当前核心变量，方便在 Excel 中查看公式计算结果。
 
 ## benchmark
 
@@ -120,4 +120,4 @@ python3 scripts/benchmark_scipy_no_count.py --mode cost
 - `logs/runs/<run_id>/running_results.log`
 - `logs/runs/<run_id>/warning.log`
 
-`logs/running_results.log` 和 `logs/warning.log` 是最近一次运行的日志；`logs/runs/<run_id>/` 是每次运行的归档日志。判断某个 Excel 是否由某次运行写出，以该次日志中的 `EXCEL WRITE` 记录为准；如果日志出现 `NO EXCEL WRITE`，说明该次运行没有覆盖 Excel。
+`logs/running_results.log` 和 `logs/warning.log` 是最近一次运行的日志；`logs/runs/<run_id>/` 是每次运行的归档日志。判断某个 Excel 是否由某次运行写出，以该次日志中的 `EXCEL WRITE` 记录为准；其中会记录 `business_feasible` 和失败约束数量。
