@@ -317,6 +317,7 @@ class ConstraintChecker:
         tol: float = 1e-6,
         stage: str = "",
         include_hot_metal_cost_limit: bool = True,
+        log_passes: bool = True,
     ):
         total = 0
         failed = 0
@@ -331,6 +332,8 @@ class ConstraintChecker:
             scale = max(1.0, abs(residual.lower), abs(residual.upper))
             ok = residual.violation <= tol * scale
             if ok:
+                if not log_passes:
+                    continue
                 logging.info(
                     "%sBUSINESS CHECK PASS %-55s value=% .12g lower=% .12g upper=% .12g violation=% .3g",
                     prefix,

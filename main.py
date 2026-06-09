@@ -7,12 +7,76 @@ from source.model import Model
 from source.result_storage import ResultStorage
 from source.constraint_checker import ConstraintChecker
 from source.active_set_search import ActiveSetSearch
-from source.utils import field, log
+from source.variable_data import VariableData
+from source.utils import field, header, log
 
 
 def default_output_filename() -> str:
     name, ext = os.path.splitext(field.EXCEL_FILENAME)
     return f"{name}_scipy_cost{ext}"
+
+
+def _baseline_ratio_map(input_data: InputData, sheet_name: str, rows, header_name: str) -> dict:
+    return {
+        row: input_data.numeric_value_by_header(sheet_name, row, header_name)
+        for row in rows
+    }
+
+
+def build_baseline_variable_data(input_data: InputData):
+    sinter_ratio = _baseline_ratio_map(
+        input_data=input_data,
+        sheet_name=field.SHEET_INTEGRATED_SINTER,
+        rows=input_data.sinter_rows,
+        header_name=header.BlendHeader.baseline_ratio,
+    )
+    pellet_ratio = _baseline_ratio_map(
+        input_data=input_data,
+        sheet_name=field.SHEET_INTEGRATED_PELLET,
+        rows=input_data.pellet_rows,
+        header_name=header.BlendHeader.baseline_ratio,
+    )
+    burden_ratio = _baseline_ratio_map(
+        input_data=input_data,
+        sheet_name=field.SHEET_BF_BURDEN,
+        rows=input_data.burden_rows,
+        header_name=header.BurdenHeader.baseline_ratio,
+    )
+    total_baseline = (
+        sum(abs(value) for value in sinter_ratio.values())
+        + sum(abs(value) for value in pellet_ratio.values())
+        + sum(abs(value) for value in burden_ratio.values())
+    )
+    if total_baseline <= 1e-9:
+        return None
+    return VariableData.build_from_ratios(
+        input_data=input_data,
+        sinter_ratio=sinter_ratio,
+        pellet_ratio=pellet_ratio,
+        burden_ratio=burden_ratio,
+    )
+
+
+def log_baseline_check(input_data: InputData, checker: ConstraintChecker):
+    baseline_variable_data = build_baseline_variable_data(input_data=input_data)
+    if baseline_variable_data is None:
+        logging.info("BASELINE CHECK SKIPPED: no baseline ratios found.")
+        print("baseline_check skipped=no_baseline_ratios", flush=True)
+        return
+    baseline_total, baseline_failed = checker.validate_and_log(
+        baseline_variable_data,
+        stage="[BASELINE]",
+        log_passes=False,
+    )
+    baseline_feasible = baseline_failed == 0
+    print(
+        "baseline_check "
+        f"business_feasible={baseline_feasible} "
+        f"failed={baseline_failed}/{baseline_total} "
+        f"max_business_violation={checker.max_business_violation(baseline_variable_data):.12g} "
+        f"hot_metal_cost={baseline_variable_data.hot_metal_cost:.12g}",
+        flush=True,
+    )
 
 
 def should_write_solution(input_data: InputData, variable_data) -> tuple:
@@ -102,6 +166,7 @@ def main():
     print(f"run_mode active_set_search={args.search_active_set}", flush=True)
 
     checker = ConstraintChecker(input_data=input_data)
+    log_baseline_check(input_data=input_data, checker=checker)
     if args.search_active_set:
         search_result = ActiveSetSearch(
             input_data=input_data,
@@ -111,7 +176,11 @@ def main():
             candidate_limit=args.active_set_candidate_limit,
             time_budget_seconds=args.active_set_time_budget_seconds,
         ).run()
-        final_total, final_failed = checker.validate_and_log(search_result.variable_data, stage="[SEARCH_BEST]")
+        final_total, final_failed = checker.validate_and_log(
+            search_result.variable_data,
+            stage="[SEARCH_BEST]",
+            log_passes=False,
+        )
         final_feasible = final_failed == 0
         print(
             "active_set_search "
@@ -149,6 +218,7 @@ def main():
         initial_variable_data,
         stage="[INITIAL]",
         include_hot_metal_cost_limit=False,
+        log_passes=False,
     )
     initial_feasible = initial_failed == 0
     print(
@@ -187,7 +257,11 @@ def main():
         show_iterations=not args.quiet_scipy,
     )
     full_feasibility_variable_data = full_feasibility_model.calculate_variable_data(full_feasibility_result.x)
-    full_total, full_failed = checker.validate_and_log(full_feasibility_variable_data, stage="[FULL_FEASIBILITY]")
+    full_total, full_failed = checker.validate_and_log(
+        full_feasibility_variable_data,
+        stage="[FULL_FEASIBILITY]",
+        log_passes=False,
+    )
     full_feasible = full_failed == 0
     print(
         "full_feasibility "
@@ -216,7 +290,11 @@ def main():
         show_iterations=not args.quiet_scipy,
     )
     variable_data = cost_model.calculate_variable_data(result.x)
-    final_total, final_failed = checker.validate_and_log(variable_data, stage="[FINAL]")
+    final_total, final_failed = checker.validate_and_log(
+        variable_data,
+        stage="[FINAL]",
+        log_passes=False,
+    )
     final_feasible = final_failed == 0
 
     print(f"cost_optimization success={result.success} nit={getattr(result, 'nit', None)}")
