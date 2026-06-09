@@ -1,4 +1,5 @@
 import logging
+import time
 from dataclasses import dataclass
 from itertools import product
 from typing import Dict, List, Sequence, Set, Tuple
@@ -35,8 +36,15 @@ class CandidateResult:
 
     @property
     def score(self) -> Tuple[int, int, float, float]:
+        if self.business_feasible:
+            return (
+                0,
+                0,
+                self.hot_metal_cost,
+                self.max_violation,
+            )
         return (
-            0 if self.business_feasible else 1,
+            1,
             self.failed,
             self.max_violation,
             self.hot_metal_cost,
@@ -51,18 +59,34 @@ class ActiveSetSearch:
         cost_maxiter: int,
         ftol: float,
         candidate_limit: int,
+        time_budget_seconds: float = None,
     ):
         self.input_data = input_data
         self.initial_maxiter = initial_maxiter
         self.cost_maxiter = cost_maxiter
         self.ftol = ftol
         self.candidate_limit = candidate_limit
+        self.time_budget_seconds = time_budget_seconds
         self.checker = ConstraintChecker(input_data=input_data)
 
     def run(self) -> CandidateResult:
         candidates = self.generate_candidates()
         best_result = None
+        start_time = time.perf_counter()
         for index, candidate in enumerate(candidates, start=1):
+            if (
+                best_result is not None
+                and self.time_budget_seconds is not None
+                and time.perf_counter() - start_time >= self.time_budget_seconds
+            ):
+                logging.info(
+                    "active set search stopped by time budget: elapsed=%.3fs budget=%.3fs evaluated=%s/%s",
+                    time.perf_counter() - start_time,
+                    self.time_budget_seconds,
+                    index - 1,
+                    len(candidates),
+                )
+                break
             result = self.solve_candidate(candidate=candidate, index=index, total=len(candidates))
             if best_result is None or result.score < best_result.score:
                 best_result = result
@@ -130,13 +154,29 @@ class ActiveSetSearch:
             include_hot_metal_cost_limit=False,
         )
         if initial_failed:
+            scored_total, scored_failed, scored_max_violation = self._summary(
+                initial_variable_data,
+                include_hot_metal_cost_limit=True,
+            )
+            logging.info(
+                "active set candidate rejected at initial stage: index=%s/%s name=%s initial_failed=%s/%s scored_failed=%s/%s max_violation=%.12g cost=%.12g",
+                index,
+                total,
+                candidate.name,
+                initial_failed,
+                initial_total,
+                scored_failed,
+                scored_total,
+                scored_max_violation,
+                initial_variable_data.hot_metal_cost,
+            )
             return self._build_result(
                 candidate=candidate,
                 variable_data=initial_variable_data,
                 stage="initial",
-                failed=initial_failed,
-                total=initial_total,
-                max_violation=initial_max_violation,
+                failed=scored_failed,
+                total=scored_total,
+                max_violation=scored_max_violation,
                 scipy_success=initial_result.success,
                 nit=getattr(initial_result, "nit", None),
             )
@@ -157,6 +197,16 @@ class ActiveSetSearch:
         full_total, full_failed, full_max_violation = self._summary(
             full_variable_data,
             include_hot_metal_cost_limit=True,
+        )
+        full_candidate_result = self._build_result(
+            candidate=candidate,
+            variable_data=full_variable_data,
+            stage="full",
+            failed=full_failed,
+            total=full_total,
+            max_violation=full_max_violation,
+            scipy_success=full_result.success,
+            nit=getattr(full_result, "nit", None),
         )
 
         cost_model = Model(
@@ -186,8 +236,9 @@ class ActiveSetSearch:
             scipy_success=cost_result.success,
             nit=getattr(cost_result, "nit", None),
         )
+        result = min((full_candidate_result, result), key=lambda item: item.score)
         logging.info(
-            "active set candidate done: index=%s/%s name=%s full_failed=%s/%s final_failed=%s/%s max_violation=%.12g cost=%.12g",
+            "active set candidate done: index=%s/%s name=%s full_failed=%s/%s final_failed=%s/%s selected_stage=%s selected_failed=%s/%s max_violation=%.12g cost=%.12g",
             index,
             total,
             candidate.name,
@@ -195,6 +246,9 @@ class ActiveSetSearch:
             full_total,
             final_failed,
             final_total,
+            result.stage,
+            result.failed,
+            result.total,
             result.max_violation,
             result.hot_metal_cost,
         )

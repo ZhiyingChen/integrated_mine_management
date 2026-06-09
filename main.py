@@ -15,7 +15,21 @@ def default_output_filename() -> str:
     return f"{name}_scipy_cost{ext}"
 
 
+def should_write_solution(input_data: InputData, variable_data) -> tuple:
+    baseline_cost = input_data.baseline_hot_metal_cost()
+    if baseline_cost is None:
+        return True, "no baseline hot metal cost"
+    if variable_data.hot_metal_cost > baseline_cost + 1e-9:
+        return False, f"hot_metal_cost={variable_data.hot_metal_cost:.12g} > baseline_hot_metal_cost={baseline_cost:.12g}"
+    return True, f"hot_metal_cost={variable_data.hot_metal_cost:.12g} <= baseline_hot_metal_cost={baseline_cost:.12g}"
+
+
 def write_solution(input_data: InputData, variable_data, args, final_feasible: bool, final_failed: int, final_total: int) -> str:
+    should_write, reason = should_write_solution(input_data=input_data, variable_data=variable_data)
+    if not should_write:
+        logging.warning("EXCEL WRITE SKIPPED: %s", reason)
+        print(f"output_skipped reason={reason}")
+        return ""
     output_filename = (args.output or default_output_filename()) if args.copy else None
     output_path = ResultStorage(input_data=input_data).write_core_variables_to_excel(
         sinter_ratio=variable_data.sinter_ratio,
@@ -25,12 +39,13 @@ def write_solution(input_data: InputData, variable_data, args, final_feasible: b
         overwrite_source=not args.copy,
     )
     logging.info(
-        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s",
+        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s guard=%s",
         output_path,
         variable_data.hot_metal_cost,
         final_feasible,
         final_failed,
         final_total,
+        reason,
     )
     print(f"hot_metal_cost={variable_data.hot_metal_cost}")
     print(f"output={output_path}")
@@ -39,8 +54,8 @@ def write_solution(input_data: InputData, variable_data, args, final_feasible: b
 
 def main():
     parser = argparse.ArgumentParser(description="Find initial feasible solution, optimize cost, and write core variables back to Excel.")
-    parser.add_argument("--initial-maxiter", type=int, default=300)
-    parser.add_argument("--cost-maxiter", type=int, default=600)
+    parser.add_argument("--initial-maxiter", type=int, default=40)
+    parser.add_argument("--cost-maxiter", type=int, default=60)
     parser.add_argument("--ftol", type=float, default=1e-10)
     parser.add_argument("--output", default=None)
     parser.add_argument(
@@ -68,8 +83,14 @@ def main():
     parser.add_argument(
         "--active-set-candidate-limit",
         type=int,
-        default=24,
+        default=4,
         help="Maximum number of active material set candidates to evaluate.",
+    )
+    parser.add_argument(
+        "--active-set-time-budget-seconds",
+        type=float,
+        default=85.0,
+        help="Stop active material set search after this many seconds and keep the best evaluated candidate.",
     )
     parser.set_defaults(search_active_set=True)
     args = parser.parse_args()
@@ -88,6 +109,7 @@ def main():
             cost_maxiter=args.cost_maxiter,
             ftol=args.ftol,
             candidate_limit=args.active_set_candidate_limit,
+            time_budget_seconds=args.active_set_time_budget_seconds,
         ).run()
         final_total, final_failed = checker.validate_and_log(search_result.variable_data, stage="[SEARCH_BEST]")
         final_feasible = final_failed == 0
