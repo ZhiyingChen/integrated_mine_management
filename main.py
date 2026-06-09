@@ -84,16 +84,12 @@ def should_write_solution(input_data: InputData, variable_data) -> tuple:
     if baseline_cost is None:
         return True, "no baseline hot metal cost"
     if variable_data.hot_metal_cost > baseline_cost + 1e-9:
-        return False, f"hot_metal_cost={variable_data.hot_metal_cost:.12g} > baseline_hot_metal_cost={baseline_cost:.12g}"
+        return True, f"hot_metal_cost={variable_data.hot_metal_cost:.12g} > baseline_hot_metal_cost={baseline_cost:.12g}"
     return True, f"hot_metal_cost={variable_data.hot_metal_cost:.12g} <= baseline_hot_metal_cost={baseline_cost:.12g}"
 
 
 def write_solution(input_data: InputData, variable_data, args, final_feasible: bool, final_failed: int, final_total: int) -> str:
     should_write, reason = should_write_solution(input_data=input_data, variable_data=variable_data)
-    if not should_write:
-        logging.warning("EXCEL WRITE SKIPPED: %s", reason)
-        print(f"output_skipped reason={reason}")
-        return ""
     output_filename = (args.output or default_output_filename()) if args.copy else None
     output_path = ResultStorage(input_data=input_data).write_core_variables_to_excel(
         sinter_ratio=variable_data.sinter_ratio,

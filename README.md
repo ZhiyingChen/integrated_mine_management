@@ -34,10 +34,10 @@ python3 main.py
 
 默认行为：
 
-- 先运行 `initial_feasibility` 阶段：核心约束作为 scipy 约束，其余业务约束作为违约惩罚目标。
-- 对 initial solution 做业务校验；若失败，仍写回该阶段结果，供 Excel 侧检查。
-- 再运行 `cost_optimization` 阶段：从 initial solution 出发优化铁水成本，同时保留业务违约惩罚。
-- 对 final solution 做完整业务校验；若失败，仍写回当前结果，日志中保留失败约束明细。
+- 先按 `基准值配比` 列构造一份 `baseline_check`，检查 baseline 在当前一体化模型口径下违反了哪些业务约束。
+- 默认启用 `active_set_search`：在多组活跃物料集合上运行 `initial_feasibility -> full_feasibility -> cost_optimization`，并保留业务约束最优、再比较铁水成本最优的候选。
+- 对最终选中的 `SEARCH_BEST` 结果做完整业务校验。
+- 业务校验日志默认只输出 `FAIL` 项和最终汇总，不逐条打印 `PASS` 项。
 - 将核心决策变量直接覆盖写回原始 Excel：
   `data/智能配矿一体化.xlsx`
 
@@ -88,7 +88,12 @@ python3 main.py --no-search-active-set
 
 其余单元格依赖 Excel/WPS 自身公式重算。
 
-如果 Excel 中存在 `基准值铁水成本`，程序会先比较优化结果和基准值；只有当优化结果不高于基准值时，才会写回 Excel。若优化结果更差，日志会记录 `EXCEL WRITE SKIPPED`，并且不会覆盖原文件或输出副本。
+如果 Excel 中存在 `基准值铁水成本`，程序仍会把优化结果和基准值做比较，并把比较结果记到日志里；但不再因为高于基准值而拦截写回。
+
+注意：
+
+- `baseline_check` 的目的，是回答“baseline 列在当前一体化模型约束下违反了哪些约束”。它不是直接复用 Excel 里 `基准值烧结矿/基准值球团矿` 分支公式的严格复刻校验。
+- 默认 `baseline` 候选只把 `基准值配比` 用作活跃物料集合来源，不会把 baseline 比例本身直接作为 scipy warm start。
 
 ## 校验脚本
 
@@ -113,14 +118,20 @@ python3 scripts/validate_business_constraints.py
 - 未勾选高炉炉料是否被置零
 - 烧结矿成分、烧结矿成分指标、球团矿成分、铁水成分/品位、炉渣成分、炉渣碱度、有害元素负荷是否满足上下限
 
-`main.py` 在完成求解和写回 Excel 后，也会自动把这些业务约束校验结果写入日志。
+`main.py` 在运行时也会自动把这些业务约束校验结果写入日志，先输出 `[BASELINE]` 的失败约束和汇总，再输出最终 `[SEARCH_BEST]` 或其他阶段结果的失败约束和汇总。
 
 控制台会输出两类状态：
 
+- `baseline_check ... business_feasible=...`
+- `active_set_search ... business_feasible=...`
+
+如果使用 `--no-search-active-set` 回退旧流程，控制台仍会输出：
+
 - `initial_solution ... business_feasible=...`
+- `full_feasibility ... business_feasible=...`
 - `final_solution ... business_feasible=...`
 
-`cost_optimization success=False` 只表示 scipy 自身可能达到迭代上限；是否能作为业务可行结果，以 `final_solution business_feasible=True` 和日志中的 `failed=0` 为准。即使业务约束未全部满足，程序也会写回当前核心变量，方便在 Excel 中查看公式计算结果。
+`cost_optimization success=False` 只表示 scipy 自身可能达到迭代上限；是否能作为业务可行结果，以对应阶段的 `business_feasible=True` 和日志中的 `failed=0` 为准。即使业务约束未全部满足，程序也会写回当前核心变量，方便在 Excel 中查看公式计算结果。
 
 ## benchmark
 
@@ -138,4 +149,4 @@ python3 scripts/benchmark_scipy_no_count.py --mode cost
 - `logs/runs/<run_id>/running_results.log`
 - `logs/runs/<run_id>/warning.log`
 
-`logs/running_results.log` 和 `logs/warning.log` 是最近一次运行的日志；`logs/runs/<run_id>/` 是每次运行的归档日志。判断某个 Excel 是否由某次运行写出，以该次日志中的 `EXCEL WRITE` 记录为准；其中会记录 `business_feasible` 和失败约束数量。
+`logs/running_results.log` 和 `logs/warning.log` 是最近一次运行的日志；`logs/runs/<run_id>/` 是每次运行的归档日志。判断某个 Excel 是否由某次运行写出，以该次日志中的 `EXCEL WRITE` 记录为准。业务校验日志默认只打印失败约束和汇总，不打印通过项。
