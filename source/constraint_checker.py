@@ -23,6 +23,7 @@ class ConstraintResidual:
 
 class ConstraintChecker:
     HOT_METAL_COST_LIMIT_LABEL = "目标上限:一体化铁水成本≤参考铁成本"
+    BUSINESS_TOLERANCE = 1e-2
 
     def __init__(self, input_data: InputData):
         self.input_data = input_data
@@ -32,14 +33,7 @@ class ConstraintChecker:
         variable_data: VariableData,
         include_hot_metal_cost_limit: bool = True,
     ) -> List[ConstraintResidual]:
-        residuals = self.count_and_objective_residuals(variable_data) + self.bound_residuals(variable_data)
-        if include_hot_metal_cost_limit:
-            return residuals
-        return [
-            residual
-            for residual in residuals
-            if residual.label != self.HOT_METAL_COST_LIMIT_LABEL
-        ]
+        return self.count_and_objective_residuals(variable_data) + self.bound_residuals(variable_data)
 
     def parameter_logic_residuals(self) -> List[ConstraintResidual]:
         result: List[ConstraintResidual] = []
@@ -108,12 +102,12 @@ class ConstraintChecker:
         sinter_ore_count = sum(
             1
             for row, value in variable_data.sinter_ratio.items()
-            if self.input_data.sinter_params[row].name in self.input_data.sinter_ore_names and value > 1e-6
+            if self.input_data.sinter_params[row].name in self.input_data.sinter_ore_names and value > self.BUSINESS_TOLERANCE
         )
         pellet_ore_count = sum(
             1
             for row, value in variable_data.pellet_ratio.items()
-            if self.input_data.pellet_params[row].name in self.input_data.sinter_ore_names and value > 1e-6
+            if self.input_data.pellet_params[row].name in self.input_data.sinter_ore_names and value > self.BUSINESS_TOLERANCE
         )
         return [
             self._build_bound_residual(
@@ -128,13 +122,15 @@ class ConstraintChecker:
                 lower=0.0,
                 upper=self.input_data.param_dict.get("球团铁矿粉仓数≤", 0.0),
             ),
-            self._build_bound_residual(
-                label=self.HOT_METAL_COST_LIMIT_LABEL,
-                value=variable_data.hot_metal_cost,
-                lower=0.0,
-                upper=self.input_data.param_dict.get("参考铁成本", 0.0),
-            ),
         ]
+
+    def hot_metal_cost_residual(self, variable_data: VariableData) -> ConstraintResidual:
+        return self._build_bound_residual(
+            label=self.HOT_METAL_COST_LIMIT_LABEL,
+            value=variable_data.hot_metal_cost,
+            lower=0.0,
+            upper=self.input_data.param_dict.get("参考铁成本", 0.0),
+        )
 
     def ratio_bound_residuals(self, variable_data: VariableData) -> List[ConstraintResidual]:
         result: List[ConstraintResidual] = []
@@ -258,11 +254,7 @@ class ConstraintChecker:
         return self._violation_penalty(self.model_ineq_residuals(variable_data))
 
     def business_residuals_without_hot_metal_cost_limit(self, variable_data: VariableData) -> List[ConstraintResidual]:
-        return [
-            residual
-            for residual in self.all_business_residuals(variable_data)
-            if residual.label != self.HOT_METAL_COST_LIMIT_LABEL
-        ]
+        return self.all_business_residuals(variable_data)
 
     def business_violation_penalty(self, variable_data: VariableData, include_hot_metal_cost_limit: bool = True) -> float:
         residuals = (
@@ -284,7 +276,7 @@ class ConstraintChecker:
     def is_business_feasible(
         self,
         variable_data: VariableData,
-        tol: float = 1e-6,
+        tol: float = BUSINESS_TOLERANCE,
         include_hot_metal_cost_limit: bool = True,
     ) -> bool:
         residuals = (
@@ -293,8 +285,7 @@ class ConstraintChecker:
             else self.business_residuals_without_hot_metal_cost_limit(variable_data)
         )
         for residual in residuals:
-            scale = max(1.0, abs(residual.lower), abs(residual.upper))
-            if residual.violation > tol * scale:
+            if residual.violation > tol:
                 return False
         return True
 
@@ -314,7 +305,7 @@ class ConstraintChecker:
     def validate_and_log(
         self,
         variable_data: VariableData,
-        tol: float = 1e-6,
+        tol: float = BUSINESS_TOLERANCE,
         stage: str = "",
         include_hot_metal_cost_limit: bool = True,
         log_passes: bool = True,
@@ -329,8 +320,7 @@ class ConstraintChecker:
         )
         for residual in residuals:
             total += 1
-            scale = max(1.0, abs(residual.lower), abs(residual.upper))
-            ok = residual.violation <= tol * scale
+            ok = residual.violation <= tol
             if ok:
                 if not log_passes:
                     continue

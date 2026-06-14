@@ -10,6 +10,8 @@ from .utils import field, header
 
 
 class ResultStorage:
+    WRITE_DECIMALS = 4
+
     def __init__(self, input_data: InputData):
         self.input_data = input_data
 
@@ -61,7 +63,7 @@ class ResultStorage:
     def _write_sheet_values(workbook, sheet_name: str, values: Dict[int, float], col: int):
         sheet = workbook[sheet_name]
         for row, value in values.items():
-            sheet.cell(row=row, column=col).value = float(value)
+            sheet.cell(row=row, column=col).value = round(float(value), ResultStorage.WRITE_DECIMALS)
 
     @staticmethod
     def _mark_recalculate_on_open(workbook):

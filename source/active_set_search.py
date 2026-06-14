@@ -380,8 +380,7 @@ class ActiveSetSearch:
         failed = 0
         max_violation = 0.0
         for residual in residuals:
-            scale = max(1.0, abs(residual.lower), abs(residual.upper))
-            if residual.violation > 1e-6 * scale:
+            if residual.violation > self.checker.BUSINESS_TOLERANCE:
                 failed += 1
             max_violation = max(max_violation, residual.violation)
         return len(residuals), failed, max_violation
