@@ -11,10 +11,17 @@ from .variable_data import VariableData
 class Model:
     COST_PENALTY_WEIGHT = 1e10
 
-    def __init__(self, input_data: InputData, initial_x: Dict[str, float]  = None, active_rows: Dict[str, set] = None):
+    def __init__(
+        self,
+        input_data: InputData,
+        initial_x: Dict[str, float] = None,
+        active_rows: Dict[str, set] = None,
+        solver_strategy: str = "slsqp",
+    ):
         self.input_data = input_data
         self.initial_x = initial_x or {}
         self.active_rows = active_rows or self._default_active_rows()
+        self.solver_strategy = solver_strategy
         self.checker = ConstraintChecker(input_data=input_data)
         self.sinter_rows = [
             row for row in input_data.sinter_rows
@@ -254,7 +261,6 @@ class Model:
         except ModuleNotFoundError as exc:
             raise RuntimeError("当前 Python 环境缺少 scipy，无法运行求解器。") from exc
 
-        x0 = self.generate_initial_x()
         include_cost_limit = mode != "feasibility"
         if mode in ("feasibility", "full_feasibility"):
             objective = lambda x: self.objective_feasibility(
@@ -264,18 +270,59 @@ class Model:
         else:
             objective = self.objective_cost
         phase_name = phase or mode
+        if self.solver_strategy == "multi_slsqp":
+            return self._run_multi_start_slsqp(
+                minimize=minimize,
+                objective=objective,
+                mode=mode,
+                maxiter=maxiter,
+                ftol=ftol,
+                phase_name=phase_name,
+                include_cost_limit=include_cost_limit,
+                show_iterations=show_iterations,
+            )
+        return self._run_single_solver(
+            minimize=minimize,
+            objective=objective,
+            mode=mode,
+            maxiter=maxiter,
+            ftol=ftol,
+            phase_name=phase_name,
+            include_cost_limit=include_cost_limit,
+            show_iterations=show_iterations,
+            x0=self.generate_initial_x(),
+            solver_method="SLSQP",
+        )
+
+    def _run_single_solver(
+        self,
+        minimize,
+        objective,
+        mode: str,
+        maxiter: int,
+        ftol: float,
+        phase_name: str,
+        include_cost_limit: bool,
+        show_iterations: bool,
+        x0,
+        solver_method: str,
+    ):
         start = time.time()
+        bounds = self.generate_bounds()
+        constraints = self.generate_constraints(include_hot_metal_cost_limit=include_cost_limit)
+        callback = self._build_iteration_callback(
+            phase_name,
+            objective,
+            include_hot_metal_cost_limit=include_cost_limit,
+        ) if show_iterations else None
+
         result = minimize(
             objective,
             x0,
             method="SLSQP",
-            bounds=self.generate_bounds(),
-            constraints=self.generate_constraints(include_hot_metal_cost_limit=include_cost_limit),
-            callback=self._build_iteration_callback(
-                phase_name,
-                objective,
-                include_hot_metal_cost_limit=include_cost_limit,
-            ) if show_iterations else None,
+            bounds=bounds,
+            constraints=constraints,
+            callback=callback,
             options={
                 "maxiter": maxiter,
                 "ftol": ftol,
@@ -283,9 +330,10 @@ class Model:
             },
         )
         logging.info(
-            "scipy SLSQP finished: phase=%s mode=%s success=%s status=%s nit=%s fun=%.12g time=%.3fs message=%s",
+            "scipy finished: phase=%s mode=%s solver=%s success=%s status=%s nit=%s fun=%.12g time=%.3fs message=%s",
             phase_name,
             mode,
+            solver_method,
             result.success,
             result.status,
             getattr(result, "nit", None),
@@ -295,3 +343,61 @@ class Model:
         )
         self.summarize_solution(result.x)
         return result
+
+    def _run_multi_start_slsqp(
+        self,
+        minimize,
+        objective,
+        mode: str,
+        maxiter: int,
+        ftol: float,
+        phase_name: str,
+        include_cost_limit: bool,
+        show_iterations: bool,
+    ):
+        best_result = None
+        best_score = None
+        seed_generator = InitialSolution(input_data=self.input_data)
+        for seed_name, seed_solution in seed_generator.generate_named_seeds(active_rows=self.active_rows):
+            x0 = [seed_solution[kind][row] for kind, row in self.keys]
+            result = self._run_single_solver(
+                minimize=minimize,
+                objective=objective,
+                mode=mode,
+                maxiter=maxiter,
+                ftol=ftol,
+                phase_name=f"{phase_name}:{seed_name}",
+                include_cost_limit=include_cost_limit,
+                show_iterations=show_iterations,
+                x0=x0,
+                solver_method="SLSQP",
+            )
+            variable_data = self.calculate_variable_data(result.x)
+            failed = self._failed_count(
+                variable_data=variable_data,
+                include_cost_limit=include_cost_limit,
+            )
+            score = (failed, variable_data.hot_metal_cost)
+            if best_result is None or score < best_score:
+                best_result = result
+                best_score = score
+                logging.info(
+                    "multi-start improved: phase=%s seed=%s failed=%s cost=%.12g",
+                    phase_name,
+                    seed_name,
+                    failed,
+                    variable_data.hot_metal_cost,
+                )
+        return best_result
+
+    def _failed_count(self, variable_data: VariableData, include_cost_limit: bool) -> int:
+        residuals = (
+            self.checker.all_business_residuals(variable_data)
+            if include_cost_limit
+            else self.checker.business_residuals_without_hot_metal_cost_limit(variable_data)
+        )
+        return sum(
+            1
+            for residual in residuals
+            if residual.violation > self.checker.BUSINESS_TOLERANCE
+        )

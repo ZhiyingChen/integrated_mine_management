@@ -60,6 +60,7 @@ class ActiveSetSearch:
         ftol: float,
         candidate_limit: int,
         time_budget_seconds: float = None,
+        solver_strategy: str = "slsqp",
     ):
         self.input_data = input_data
         self.initial_maxiter = initial_maxiter
@@ -67,6 +68,7 @@ class ActiveSetSearch:
         self.ftol = ftol
         self.candidate_limit = candidate_limit
         self.time_budget_seconds = time_budget_seconds
+        self.solver_strategy = solver_strategy
         self.checker = ConstraintChecker(input_data=input_data)
 
     def run(self) -> CandidateResult:
@@ -140,7 +142,11 @@ class ActiveSetSearch:
             self._active_ore_names(candidate.pellet_rows, self.input_data.pellet_params),
         )
 
-        initial_model = Model(input_data=self.input_data, active_rows=active_rows)
+        initial_model = Model(
+            input_data=self.input_data,
+            active_rows=active_rows,
+            solver_strategy=self.solver_strategy,
+        )
         initial_result = initial_model.run_model(
             mode="feasibility",
             maxiter=self.initial_maxiter,
@@ -185,6 +191,7 @@ class ActiveSetSearch:
             input_data=self.input_data,
             initial_x=initial_model.solution_dict(initial_result.x),
             active_rows=active_rows,
+            solver_strategy=self.solver_strategy,
         )
         full_result = full_model.run_model(
             mode="full_feasibility",
@@ -213,6 +220,7 @@ class ActiveSetSearch:
             input_data=self.input_data,
             initial_x=full_model.solution_dict(full_result.x),
             active_rows=active_rows,
+            solver_strategy=self.solver_strategy,
         )
         cost_result = cost_model.run_model(
             mode="cost",
@@ -263,7 +271,10 @@ class ActiveSetSearch:
         non_ore_rows = set(rows) - set(ore_rows)
         seeds = []
 
-        heuristic_rows = Model(input_data=self.input_data).active_rows[group]
+        heuristic_rows = Model(
+            input_data=self.input_data,
+            solver_strategy=self.solver_strategy,
+        ).active_rows[group]
         self._append_seed(seeds, "heuristic", heuristic_rows)
 
         baseline_ores = self._baseline_ore_rows(group=group, rows=ore_rows, params=params, limit=limit)

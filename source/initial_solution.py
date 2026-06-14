@@ -42,11 +42,129 @@ class InitialSolution:
             ),
         }
 
+    def generate_from_midpoint(self, active_rows: Dict[str, set] = None):
+        active_rows = active_rows or {}
+        return {
+            "sinter": self._project_group(
+                rows=self.input_data.sinter_rows,
+                values={
+                    row: self._midpoint_value(
+                        row=row,
+                        bounds=self.input_data.sinter_params[row].ratio_bounds,
+                        active_rows=active_rows.get("sinter"),
+                    )
+                    for row in self.input_data.sinter_rows
+                },
+                bounds={
+                    row: self._active_bounds(
+                        row=row,
+                        bounds=self.input_data.sinter_params[row].ratio_bounds,
+                        active_rows=active_rows.get("sinter"),
+                    )
+                    for row in self.input_data.sinter_rows
+                },
+            ),
+            "pellet": self._project_group(
+                rows=self.input_data.pellet_rows,
+                values={
+                    row: self._midpoint_value(
+                        row=row,
+                        bounds=self.input_data.pellet_params[row].ratio_bounds,
+                        active_rows=active_rows.get("pellet"),
+                    )
+                    for row in self.input_data.pellet_rows
+                },
+                bounds={
+                    row: self._active_bounds(
+                        row=row,
+                        bounds=self.input_data.pellet_params[row].ratio_bounds,
+                        active_rows=active_rows.get("pellet"),
+                    )
+                    for row in self.input_data.pellet_rows
+                },
+            ),
+            "burden": self._project_group(
+                rows=self.selected_burden_rows,
+                values={
+                    row: sum(self.input_data.burden_params[row].ratio_bounds) / 2
+                    for row in self.selected_burden_rows
+                },
+                bounds={
+                    row: self.input_data.burden_params[row].ratio_bounds
+                    for row in self.selected_burden_rows
+                },
+            ),
+        }
+
+    def generate_from_upper_bias(self, active_rows: Dict[str, set] = None):
+        active_rows = active_rows or {}
+        return {
+            "sinter": self._project_group(
+                rows=self.input_data.sinter_rows,
+                values={
+                    row: self._upper_value(
+                        row=row,
+                        bounds=self.input_data.sinter_params[row].ratio_bounds,
+                        active_rows=active_rows.get("sinter"),
+                    )
+                    for row in self.input_data.sinter_rows
+                },
+                bounds={
+                    row: self._active_bounds(
+                        row=row,
+                        bounds=self.input_data.sinter_params[row].ratio_bounds,
+                        active_rows=active_rows.get("sinter"),
+                    )
+                    for row in self.input_data.sinter_rows
+                },
+            ),
+            "pellet": self._project_group(
+                rows=self.input_data.pellet_rows,
+                values={
+                    row: self._upper_value(
+                        row=row,
+                        bounds=self.input_data.pellet_params[row].ratio_bounds,
+                        active_rows=active_rows.get("pellet"),
+                    )
+                    for row in self.input_data.pellet_rows
+                },
+                bounds={
+                    row: self._active_bounds(
+                        row=row,
+                        bounds=self.input_data.pellet_params[row].ratio_bounds,
+                        active_rows=active_rows.get("pellet"),
+                    )
+                    for row in self.input_data.pellet_rows
+                },
+            ),
+            "burden": self._project_group(
+                rows=self.selected_burden_rows,
+                values={
+                    row: self.input_data.burden_params[row].ratio_bounds[1]
+                    for row in self.selected_burden_rows
+                },
+                bounds={
+                    row: self.input_data.burden_params[row].ratio_bounds
+                    for row in self.selected_burden_rows
+                },
+            ),
+        }
+
     @staticmethod
     def _active_bounds(row: int, bounds: tuple, active_rows):
         if active_rows is not None and row not in active_rows:
             return 0.0, 0.0
         return bounds
+
+    @staticmethod
+    def _midpoint_value(row: int, bounds: tuple, active_rows):
+        lower, upper = InitialSolution._active_bounds(row=row, bounds=bounds, active_rows=active_rows)
+        return (lower + upper) / 2
+
+    @staticmethod
+    def _upper_value(row: int, bounds: tuple, active_rows):
+        _, upper = InitialSolution._active_bounds(row=row, bounds=bounds, active_rows=active_rows)
+        return upper
 
     @property
     def selected_burden_rows(self) -> List[int]:
@@ -117,3 +235,10 @@ class InitialSolution:
         initial = self.generate_from_bounds_only(active_rows=active_rows)
         logging.info("initial solution seed source: bounds_only")
         return initial
+
+    def generate_named_seeds(self, active_rows: Dict[str, set] = None):
+        return [
+            ("bounds_only", self.generate_from_bounds_only(active_rows=active_rows)),
+            ("midpoint", self.generate_from_midpoint(active_rows=active_rows)),
+            ("upper_bias", self.generate_from_upper_bias(active_rows=active_rows)),
+        ]

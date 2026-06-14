@@ -45,8 +45,8 @@ python3 main.py
 
 - `--initial-maxiter 40`
   调整可行初始解阶段的 SLSQP 最大迭代次数。
-- `--cost-maxiter 60`
-  调整成本优化阶段的 SLSQP 最大迭代次数。
+- `--cost-maxiter`
+  调整成本优化阶段的 SLSQP 最大迭代次数。不指定时按策略给默认值：`grid=120`，`probe/beam=60`。
 - `--ftol 1e-10`
   调整 SLSQP 收敛精度。
 - `--quiet-scipy`
@@ -61,23 +61,69 @@ python3 main.py
   控制活跃物料集合搜索最多评估多少组候选。
 - `--active-set-time-budget-seconds 85`
   控制活跃物料集合搜索的总耗时预算；超过后停止搜索并保留当前最优候选。
+- `--search-strategy grid`
+  外层活跃物料集合搜索策略。可选 `grid`、`probe`、`beam`。
+- `--probe-neighbor-limit 9`
+  `probe` 策略中，每个种子集合最多尝试多少个一换一探针候选。
+- `--beam-width 2 --beam-depth 2 --beam-neighbor-limit 8`
+  `beam` 策略的前沿宽度、扩展深度和每层邻居候选上限。
 
 ```bash
 python3 main.py
 ```
 
-默认会启用活跃物料集合搜索。当前默认参数会优先控制运行时间，目标是在单个数据目录内尽量在 90 秒附近返回一个结果。搜索候选包括基准值配比集合、高 TFe 集合、低成本/高铁集合，以及围绕这些集合的一换一组合。基准值候选只读取 `基准值配比` 列；如果没有基准值，则不会把 Excel 当前 `一体化配比` 当作候选来源。
+默认会启用活跃物料集合搜索。基准值候选只读取 `基准值配比` 列；如果没有基准值，则不会把 Excel 当前 `一体化配比` 当作候选来源。
+
+## 搜索策略
+
+默认策略是 `grid`，等价于：
+
+```bash
+python3 main.py --search-strategy grid
+```
+
+`grid` 方法（领域搜索 + 梯度下降）：
+
+- 方法：外层先做活跃物料集合的领域搜索，生成少量稳定候选集合，包括启发式低成本/高铁集合、基准值活跃集合、高 TFe 集合，以及局部一换一集合；内层对每个候选集合用 SLSQP 做连续配比优化，可理解为梯度下降类的非线性约束优化。
+- 默认参数：`--active-set-candidate-limit 4`，`--active-set-time-budget-seconds 85`，`--cost-maxiter 120`。
+- 适用场景：日常默认使用，速度和稳定性最好；当前五组数据通常 30-45 秒完成。
+
+`probe` 方法（领域搜索 + 邻域探针搜索 + 梯度下降）：
+
+```bash
+python3 main.py --search-strategy probe
+```
+
+- 方法：外层先完整运行一轮 `grid` 种子，保证不丢默认结果；然后围绕每个种子集合做 hill-style 一换一邻域探针搜索，例如替换一个烧结矿粉或球团矿粉活跃物料；内层仍对每个候选集合用 SLSQP 做连续配比优化。
+- 默认参数：`--probe-neighbor-limit 9`，`--cost-maxiter 60`，`--active-set-time-budget-seconds 85`。
+- 适用场景：想多花一点时间找更低成本结果时使用；当前五组数据中 `data0/data2/data4` 优于旧默认，`data1/data3` 持平，运行时间通常接近 95 秒。
+
+`beam` 方法（领域搜索 + 束搜索 + 梯度下降）：
+
+```bash
+python3 main.py --search-strategy beam
+```
+
+- 方法：外层先运行 `grid` 种子，再保留当前最好的若干活跃物料集合组成 beam frontier，对这些集合继续做一换一扩展，逐层做束搜索；内层仍对每个候选集合用 SLSQP 做连续配比优化。
+- 默认参数：`--beam-width 2`，`--beam-depth 2`，`--beam-neighbor-limit 8`，`--cost-maxiter 60`。
+- 适用场景：研究/深搜使用；部分数据有改善，但耗时更高，暂不作为默认。
+
+如果要关闭活跃物料集合搜索，只跑单组默认活跃集合：
+
+```bash
+python3 main.py --no-search-active-set
+```
+
+本轮实测的铁水成本对比：
+
+- 旧默认 `grid + cost_maxiter=60`：`data0=2124.4661`，`data1=2193.4560`，`data2=2195.4883`，`data3=2206.9030`，`data4=2196.7824`。
+- 新默认 `grid + cost_maxiter=120`：`data0=2124.4129`，`data1=2193.4560`，`data2=2194.2694`，`data3=2206.9030`，`data4=2196.7810`。
+- 可选 `probe + cost_maxiter=60`：`data0=2124.3006`，`data1=2193.4560`，`data2=2194.8378`，`data3=2206.9030`，`data4=2195.3609`。
 
 如果想输出到 Excel 副本而不是覆盖原始文件：
 
 ```bash
 python3 main.py --copy --output result.xlsx
-```
-
-如果想临时回退旧流程：
-
-```bash
-python3 main.py --no-search-active-set
 ```
 
 当前写回的核心变量列：

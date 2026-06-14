@@ -7,6 +7,8 @@ from source.model import Model
 from source.result_storage import ResultStorage
 from source.constraint_checker import ConstraintChecker
 from source.active_set_search import ActiveSetSearch
+from source.beam_search import BeamSearch
+from source.probe_search import ProbeSearch
 from source.variable_data import VariableData
 from source.utils import field, header, log
 
@@ -105,6 +107,36 @@ def log_hot_metal_cost_hint(checker: ConstraintChecker, variable_data, stage: st
         )
 
 
+def run_active_search(input_data: InputData, args):
+    search_classes = {
+        "beam": BeamSearch,
+        "grid": ActiveSetSearch,
+        "probe": ProbeSearch,
+    }
+    search_kwargs = {}
+    if args.search_strategy == "beam":
+        search_kwargs = {
+            "beam_width": args.beam_width,
+            "beam_depth": args.beam_depth,
+            "beam_neighbor_limit": args.beam_neighbor_limit,
+        }
+    elif args.search_strategy == "probe":
+        search_kwargs = {
+            "probe_neighbor_limit": args.probe_neighbor_limit,
+        }
+    search_cls = search_classes[args.search_strategy]
+    return search_cls(
+        input_data=input_data,
+        initial_maxiter=args.initial_maxiter,
+        cost_maxiter=args.cost_maxiter,
+        ftol=args.ftol,
+        candidate_limit=args.active_set_candidate_limit,
+        time_budget_seconds=args.active_set_time_budget_seconds,
+        solver_strategy=args.solver_strategy,
+        **search_kwargs,
+    ).run()
+
+
 def should_write_solution(input_data: InputData, variable_data) -> tuple:
     baseline_cost = input_data.baseline_hot_metal_cost()
     if baseline_cost is None:
@@ -141,7 +173,7 @@ def write_solution(input_data: InputData, variable_data, args, final_feasible: b
 def main():
     parser = argparse.ArgumentParser(description="Find initial feasible solution, optimize cost, and write core variables back to Excel.")
     parser.add_argument("--initial-maxiter", type=int, default=40)
-    parser.add_argument("--cost-maxiter", type=int, default=60)
+    parser.add_argument("--cost-maxiter", type=int, default=None)
     parser.add_argument("--ftol", type=float, default=1e-10)
     parser.add_argument("--output", default=None)
     parser.add_argument(
@@ -178,26 +210,43 @@ def main():
         default=85.0,
         help="Stop active material set search after this many seconds and keep the best evaluated candidate.",
     )
-    parser.set_defaults(search_active_set=True)
+    parser.add_argument(
+        "--search-strategy",
+        choices=["grid", "beam", "probe"],
+        default="grid",
+        help="Outer search strategy for active material combinations.",
+    )
+    parser.add_argument("--beam-width", type=int, default=2)
+    parser.add_argument("--beam-depth", type=int, default=2)
+    parser.add_argument("--beam-neighbor-limit", type=int, default=8)
+    parser.add_argument("--probe-neighbor-limit", type=int, default=9)
+    parser.set_defaults(search_active_set=True, solver_strategy="slsqp")
     args = parser.parse_args()
+    if args.cost_maxiter is None:
+        args.cost_maxiter = 60 if args.search_strategy in ("beam", "probe") else 120
 
     log.setup_log(log_dir="logs")
     input_data = InputData(exe_folder="./")
     input_data.read_data()
-    logging.info("RUN MODE: active_set_search=%s", args.search_active_set)
-    print(f"run_mode active_set_search={args.search_active_set}", flush=True)
+    logging.info(
+        "RUN MODE: active_set_search=%s search_strategy=%s solver_strategy=%s cost_maxiter=%s",
+        args.search_active_set,
+        args.search_strategy,
+        args.solver_strategy,
+        args.cost_maxiter,
+    )
+    print(
+        f"run_mode active_set_search={args.search_active_set} "
+        f"search_strategy={args.search_strategy} "
+        f"solver_strategy={args.solver_strategy} "
+        f"cost_maxiter={args.cost_maxiter}",
+        flush=True,
+    )
 
     checker = ConstraintChecker(input_data=input_data)
     log_baseline_check(input_data=input_data, checker=checker)
     if args.search_active_set:
-        search_result = ActiveSetSearch(
-            input_data=input_data,
-            initial_maxiter=args.initial_maxiter,
-            cost_maxiter=args.cost_maxiter,
-            ftol=args.ftol,
-            candidate_limit=args.active_set_candidate_limit,
-            time_budget_seconds=args.active_set_time_budget_seconds,
-        ).run()
+        search_result = run_active_search(input_data=input_data, args=args)
         final_total, final_failed = checker.validate_and_log(
             search_result.variable_data,
             stage="[SEARCH_BEST]",
@@ -228,7 +277,7 @@ def main():
         )
         return 0
 
-    initial_model = Model(input_data=input_data)
+    initial_model = Model(input_data=input_data, solver_strategy=args.solver_strategy)
     initial_result = initial_model.run_model(
         mode="feasibility",
         maxiter=args.initial_maxiter,
@@ -272,6 +321,7 @@ def main():
         input_data=input_data,
         initial_x=initial_model.solution_dict(initial_result.x),
         active_rows=initial_model.active_rows,
+        solver_strategy=args.solver_strategy,
     )
     full_feasibility_result = full_feasibility_model.run_model(
         mode="full_feasibility",
@@ -306,6 +356,7 @@ def main():
         input_data=input_data,
         initial_x=full_feasibility_model.solution_dict(full_feasibility_result.x),
         active_rows=full_feasibility_model.active_rows,
+        solver_strategy=args.solver_strategy,
     )
     result = cost_model.run_model(
         mode="cost",
