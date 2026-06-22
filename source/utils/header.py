@@ -64,8 +64,3 @@ class ParamHeader:
     name = "名称"
     value = "数值"
     unit = "单位"
-
-
-class HotMetalCostHeader:
-    baseline_cost = "基准值铁水成本"
-    integrated_cost = "一体化铁水成本"

@@ -77,45 +77,9 @@ def log_baseline_check(input_data: InputData, checker: ConstraintChecker):
         f"hot_metal_cost={baseline_variable_data.hot_metal_cost:.12g}",
         flush=True,
     )
-    log_hot_metal_cost_hint(checker=checker, variable_data=baseline_variable_data, stage="[BASELINE]")
-
-
-def log_hot_metal_cost_hint(checker: ConstraintChecker, variable_data, stage: str):
-    residual = checker.hot_metal_cost_residual(variable_data)
-    if residual.violation > checker.BUSINESS_TOLERANCE:
-        logging.warning(
-            "%s HOT METAL COST LIMIT EXCEEDED value=% .12g upper=% .12g violation=% .12g",
-            stage,
-            residual.value,
-            residual.upper,
-            residual.violation,
-        )
-        print(
-            f"{stage} hot_metal_cost_limit_exceeded "
-            f"value={residual.value:.12g} upper={residual.upper:.12g} violation={residual.violation:.12g}",
-            flush=True,
-        )
-    else:
-        logging.info(
-            "%s hot metal cost limit within tolerance value=% .12g upper=% .12g violation=% .12g",
-            stage,
-            residual.value,
-            residual.upper,
-            residual.violation,
-        )
-
-
-def should_write_solution(input_data: InputData, variable_data) -> tuple:
-    baseline_cost = input_data.baseline_hot_metal_cost()
-    if baseline_cost is None:
-        return True, "no baseline hot metal cost"
-    if variable_data.hot_metal_cost > baseline_cost + 1e-9:
-        return True, f"hot_metal_cost={variable_data.hot_metal_cost:.12g} > baseline_hot_metal_cost={baseline_cost:.12g}"
-    return True, f"hot_metal_cost={variable_data.hot_metal_cost:.12g} <= baseline_hot_metal_cost={baseline_cost:.12g}"
 
 
 def write_solution(input_data: InputData, variable_data, args, final_feasible: bool, final_failed: int, final_total: int) -> str:
-    should_write, reason = should_write_solution(input_data=input_data, variable_data=variable_data)
     output_filename = (args.output or default_output_filename()) if args.copy else None
     output_path = ResultStorage(input_data=input_data).write_core_variables_to_excel(
         sinter_ratio=variable_data.sinter_ratio,
@@ -125,13 +89,12 @@ def write_solution(input_data: InputData, variable_data, args, final_feasible: b
         overwrite_source=not args.copy,
     )
     logging.info(
-        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s guard=%s",
+        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s",
         output_path,
         variable_data.hot_metal_cost,
         final_feasible,
         final_failed,
         final_total,
-        reason,
     )
     print(f"hot_metal_cost={variable_data.hot_metal_cost}")
     print(f"output={output_path}")
@@ -214,7 +177,6 @@ def main():
             f"hot_metal_cost={search_result.hot_metal_cost:.12g}",
             flush=True,
         )
-        log_hot_metal_cost_hint(checker=checker, variable_data=search_result.variable_data, stage="[SEARCH_BEST]")
         if not final_feasible:
             logging.warning("active_set_search best result is not business feasible; write best available solution.")
             print("active_set_search best result is not business feasible; write best available solution.", flush=True)
@@ -240,7 +202,6 @@ def main():
     initial_total, initial_failed = checker.validate_and_log(
         initial_variable_data,
         stage="[INITIAL]",
-        include_hot_metal_cost_limit=False,
         log_passes=False,
     )
     initial_feasible = initial_failed == 0
@@ -250,11 +211,10 @@ def main():
         f"nit={getattr(initial_result, 'nit', None)} "
         f"business_feasible={initial_feasible} "
         f"failed={initial_failed}/{initial_total} "
-        f"max_business_violation={checker.max_business_violation(initial_variable_data, include_hot_metal_cost_limit=False):.12g} "
+        f"max_business_violation={checker.max_business_violation(initial_variable_data):.12g} "
         f"hot_metal_cost={initial_variable_data.hot_metal_cost:.12g}",
         flush=True,
     )
-    log_hot_metal_cost_hint(checker=checker, variable_data=initial_variable_data, stage="[INITIAL]")
     if not initial_feasible:
         logging.warning("initial_solution is not business feasible; write initial solution and skip downstream optimization.")
         print("initial_solution is not business feasible; write initial solution and skip downstream optimization.", flush=True)
@@ -297,7 +257,6 @@ def main():
         f"hot_metal_cost={full_feasibility_variable_data.hot_metal_cost:.12g}",
         flush=True,
     )
-    log_hot_metal_cost_hint(checker=checker, variable_data=full_feasibility_variable_data, stage="[FULL_FEASIBILITY]")
     if not full_feasible:
         logging.warning("full_feasibility is not business feasible; continue cost optimization from best available solution.")
         print("full_feasibility is not business feasible; continue cost optimization from best available solution.", flush=True)
@@ -330,7 +289,6 @@ def main():
         f"max_business_violation={checker.max_business_violation(variable_data):.12g}",
         flush=True,
     )
-    log_hot_metal_cost_hint(checker=checker, variable_data=variable_data, stage="[FINAL]")
     if not final_feasible:
         logging.warning("final_solution is not business feasible; write infeasible solution for Excel-side review.")
         print("final_solution is not business feasible; write infeasible solution for Excel-side review.", flush=True)

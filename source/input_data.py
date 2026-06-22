@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import domain_object as do
 from .utils import enums, field, header
@@ -336,19 +336,6 @@ class InputData:
             value = self.workbook.numeric_value(sheet_name, row, col, default=default)
         self._formula_value_cache[key] = value
         return value
-
-    def baseline_hot_metal_cost(self) -> Optional[float]:
-        header_map = self.workbook.header_map(field.SHEET_HOT_METAL_COST, 1)
-        baseline_col = header_map.get(header.HotMetalCostHeader.baseline_cost)
-        if baseline_col is None:
-            return None
-        value = self.workbook.value(field.SHEET_HOT_METAL_COST, 2, baseline_col, default=None)
-        if value is None or value == "":
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
 
     def _evaluate_formula(self, sheet_name: str, formula: str) -> float:
         expr = formula[1:] if formula.startswith("=") else formula

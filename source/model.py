@@ -146,23 +146,17 @@ class Model:
         self._last_eval_variable_data = variable_data
         return variable_data
 
-    def objective_feasibility(self, x: Sequence[float], include_hot_metal_cost_limit: bool = False) -> float:
+    def objective_feasibility(self, x: Sequence[float]) -> float:
         variable_data = self.calculate_variable_data(x)
-        return self.checker.business_violation_penalty(
-            variable_data,
-            include_hot_metal_cost_limit=include_hot_metal_cost_limit,
-        )
+        return self.checker.business_violation_penalty(variable_data)
 
     def objective_cost(self, x: Sequence[float]) -> float:
         variable_data = self.calculate_variable_data(x)
         return variable_data.hot_metal_cost + self.COST_PENALTY_WEIGHT * self.checker.business_violation_penalty(variable_data)
 
-    def nonlinear_ineq_residuals(self, x: Sequence[float], include_hot_metal_cost_limit: bool = True):
+    def nonlinear_ineq_residuals(self, x: Sequence[float]):
         variable_data = self.calculate_variable_data(x)
-        return self.checker.scipy_ineq_values(
-            variable_data,
-            include_hot_metal_cost_limit=include_hot_metal_cost_limit,
-        )
+        return self.checker.scipy_ineq_values(variable_data)
 
     def generate_core_constraints(self):
         return [
@@ -189,14 +183,11 @@ class Model:
             },
         ]
 
-    def generate_constraints(self, include_hot_metal_cost_limit: bool = True):
+    def generate_constraints(self):
         return self.generate_core_constraints() + [
             {
                 "type": "ineq",
-                "fun": lambda x: self.nonlinear_ineq_residuals(
-                    x,
-                    include_hot_metal_cost_limit=include_hot_metal_cost_limit,
-                ),
+                "fun": lambda x: self.nonlinear_ineq_residuals(x),
                 "name": "business_bounds",
             }
         ]
@@ -213,21 +204,15 @@ class Model:
         )
         return variable_data
 
-    def _build_iteration_callback(self, phase: str, objective, include_hot_metal_cost_limit: bool):
+    def _build_iteration_callback(self, phase: str, objective):
         iteration = {"count": 0}
 
         def callback(xk):
             iteration["count"] += 1
             variable_data = self.calculate_variable_data(xk)
             objective_value = objective(xk)
-            penalty = self.checker.business_violation_penalty(
-                variable_data,
-                include_hot_metal_cost_limit=include_hot_metal_cost_limit,
-            )
-            max_violation = self.checker.max_business_violation(
-                variable_data,
-                include_hot_metal_cost_limit=include_hot_metal_cost_limit,
-            )
+            penalty = self.checker.business_violation_penalty(variable_data)
+            max_violation = self.checker.max_business_violation(variable_data)
             print(
                 "SCIPY ITER "
                 f"phase={phase} "
@@ -255,12 +240,8 @@ class Model:
             raise RuntimeError("当前 Python 环境缺少 scipy，无法运行求解器。") from exc
 
         x0 = self.generate_initial_x()
-        include_cost_limit = mode != "feasibility"
         if mode in ("feasibility", "full_feasibility"):
-            objective = lambda x: self.objective_feasibility(
-                x,
-                include_hot_metal_cost_limit=include_cost_limit,
-            )
+            objective = self.objective_feasibility
         else:
             objective = self.objective_cost
         phase_name = phase or mode
@@ -270,11 +251,10 @@ class Model:
             x0,
             method="SLSQP",
             bounds=self.generate_bounds(),
-            constraints=self.generate_constraints(include_hot_metal_cost_limit=include_cost_limit),
+            constraints=self.generate_constraints(),
             callback=self._build_iteration_callback(
                 phase_name,
                 objective,
-                include_hot_metal_cost_limit=include_cost_limit,
             ) if show_iterations else None,
             options={
                 "maxiter": maxiter,

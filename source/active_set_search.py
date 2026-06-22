@@ -149,34 +149,25 @@ class ActiveSetSearch:
             show_iterations=False,
         )
         initial_variable_data = initial_model.calculate_variable_data(initial_result.x)
-        initial_total, initial_failed, initial_max_violation = self._summary(
-            initial_variable_data,
-            include_hot_metal_cost_limit=False,
-        )
+        initial_total, initial_failed, initial_max_violation = self._summary(initial_variable_data)
         if initial_failed:
-            scored_total, scored_failed, scored_max_violation = self._summary(
-                initial_variable_data,
-                include_hot_metal_cost_limit=True,
-            )
             logging.info(
-                "active set candidate rejected at initial stage: index=%s/%s name=%s initial_failed=%s/%s scored_failed=%s/%s max_violation=%.12g cost=%.12g",
+                "active set candidate rejected at initial stage: index=%s/%s name=%s failed=%s/%s max_violation=%.12g cost=%.12g",
                 index,
                 total,
                 candidate.name,
                 initial_failed,
                 initial_total,
-                scored_failed,
-                scored_total,
-                scored_max_violation,
+                initial_max_violation,
                 initial_variable_data.hot_metal_cost,
             )
             return self._build_result(
                 candidate=candidate,
                 variable_data=initial_variable_data,
                 stage="initial",
-                failed=scored_failed,
-                total=scored_total,
-                max_violation=scored_max_violation,
+                failed=initial_failed,
+                total=initial_total,
+                max_violation=initial_max_violation,
                 scipy_success=initial_result.success,
                 nit=getattr(initial_result, "nit", None),
             )
@@ -194,10 +185,7 @@ class ActiveSetSearch:
             show_iterations=False,
         )
         full_variable_data = full_model.calculate_variable_data(full_result.x)
-        full_total, full_failed, full_max_violation = self._summary(
-            full_variable_data,
-            include_hot_metal_cost_limit=True,
-        )
+        full_total, full_failed, full_max_violation = self._summary(full_variable_data)
         full_candidate_result = self._build_result(
             candidate=candidate,
             variable_data=full_variable_data,
@@ -222,10 +210,7 @@ class ActiveSetSearch:
             show_iterations=False,
         )
         variable_data = cost_model.calculate_variable_data(cost_result.x)
-        final_total, final_failed, final_max_violation = self._summary(
-            variable_data,
-            include_hot_metal_cost_limit=True,
-        )
+        final_total, final_failed, final_max_violation = self._summary(variable_data)
         result = self._build_result(
             candidate=candidate,
             variable_data=variable_data,
@@ -371,12 +356,8 @@ class ActiveSetSearch:
                         return result
         return result
 
-    def _summary(self, variable_data: VariableData, include_hot_metal_cost_limit: bool) -> Tuple[int, int, float]:
-        residuals = (
-            self.checker.all_business_residuals(variable_data)
-            if include_hot_metal_cost_limit
-            else self.checker.business_residuals_without_hot_metal_cost_limit(variable_data)
-        )
+    def _summary(self, variable_data: VariableData) -> Tuple[int, int, float]:
+        residuals = self.checker.all_business_residuals(variable_data)
         failed = 0
         max_violation = 0.0
         for residual in residuals:
