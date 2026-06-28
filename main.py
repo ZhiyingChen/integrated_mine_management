@@ -7,6 +7,7 @@ from source.model import Model
 from source.result_storage import ResultStorage
 from source.constraint_checker import ConstraintChecker
 from source.active_set_search import ActiveSetSearch
+from source.grasp_search import GraspSearch
 from source.variable_data import VariableData
 from source.utils import field, header, log
 
@@ -101,6 +102,29 @@ def write_solution(input_data: InputData, variable_data, args, final_feasible: b
     return output_path
 
 
+def run_active_search(input_data: InputData, args):
+    if args.search_strategy == "grasp":
+        return GraspSearch(
+            input_data=input_data,
+            initial_maxiter=args.initial_maxiter,
+            cost_maxiter=args.cost_maxiter,
+            ftol=args.ftol,
+            candidate_limit=args.active_set_candidate_limit,
+            time_budget_seconds=args.active_set_time_budget_seconds,
+            restarts=args.grasp_restarts,
+            rcl_size=args.grasp_rcl_size,
+            random_seed=args.grasp_random_seed,
+        ).run()
+    return ActiveSetSearch(
+        input_data=input_data,
+        initial_maxiter=args.initial_maxiter,
+        cost_maxiter=args.cost_maxiter,
+        ftol=args.ftol,
+        candidate_limit=args.active_set_candidate_limit,
+        time_budget_seconds=args.active_set_time_budget_seconds,
+    ).run()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Find initial feasible solution, optimize cost, and write core variables back to Excel.")
     parser.add_argument("--initial-maxiter", type=int, default=40)
@@ -141,26 +165,36 @@ def main():
         default=85.0,
         help="Stop active material set search after this many seconds and keep the best evaluated candidate.",
     )
+    parser.add_argument(
+        "--search-strategy",
+        choices=["grid", "grasp"],
+        default="grid",
+        help="Outer search strategy for active material combinations.",
+    )
+    parser.add_argument("--grasp-restarts", type=int, default=12)
+    parser.add_argument("--grasp-rcl-size", type=int, default=3)
+    parser.add_argument("--grasp-random-seed", type=int, default=42)
     parser.set_defaults(search_active_set=True)
     args = parser.parse_args()
 
     log.setup_log(log_dir="logs")
     input_data = InputData(exe_folder="./")
     input_data.read_data()
-    logging.info("RUN MODE: active_set_search=%s", args.search_active_set)
-    print(f"run_mode active_set_search={args.search_active_set}", flush=True)
+    logging.info(
+        "RUN MODE: active_set_search=%s search_strategy=%s",
+        args.search_active_set,
+        args.search_strategy,
+    )
+    print(
+        f"run_mode active_set_search={args.search_active_set} "
+        f"search_strategy={args.search_strategy}",
+        flush=True,
+    )
 
     checker = ConstraintChecker(input_data=input_data)
     log_baseline_check(input_data=input_data, checker=checker)
     if args.search_active_set:
-        search_result = ActiveSetSearch(
-            input_data=input_data,
-            initial_maxiter=args.initial_maxiter,
-            cost_maxiter=args.cost_maxiter,
-            ftol=args.ftol,
-            candidate_limit=args.active_set_candidate_limit,
-            time_budget_seconds=args.active_set_time_budget_seconds,
-        ).run()
+        search_result = run_active_search(input_data=input_data, args=args)
         final_total, final_failed = checker.validate_and_log(
             search_result.variable_data,
             stage="[SEARCH_BEST]",
