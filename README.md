@@ -36,6 +36,7 @@ python3 main.py
 
 - 先按 `基准值配比` 列构造一份 `baseline_check`，检查 baseline 在当前一体化模型口径下违反了哪些业务约束。
 - 默认启用 `active_set_search`：在多组活跃物料集合上运行 `initial_feasibility -> full_feasibility -> cost_optimization`，并保留业务约束最优、再比较铁水成本最优的候选。
+- 默认外层搜索策略是 `grid`。
 - 对最终选中的 `SEARCH_BEST` 结果做完整业务校验。
 - 业务校验日志默认只输出 `FAIL` 项和最终汇总，不逐条打印 `PASS` 项。
 - 将核心决策变量直接覆盖写回原始 Excel：
@@ -61,12 +62,37 @@ python3 main.py
   控制活跃物料集合搜索最多评估多少组候选。
 - `--active-set-time-budget-seconds 85`
   控制活跃物料集合搜索的总耗时预算；超过后停止搜索并保留当前最优候选。
+- `--search-strategy {grid,grasp}`
+  选择外层活跃物料集合搜索策略，默认是 `grid`。
+- `--grasp-restarts 6`
+  `grasp` 模式下的随机贪心重启次数。
+- `--grasp-rcl-size 3`
+  `grasp` 模式下每轮构造时的候选限制表大小。
+- `--grasp-random-seed 42`
+  `grasp` 模式下的随机种子。
 
 ```bash
 python3 main.py
 ```
 
 默认会启用活跃物料集合搜索。当前默认参数会优先控制运行时间，目标是在单个数据目录内尽量在 90 秒附近返回一个结果。搜索候选包括基准值配比集合、高 TFe 集合、低成本/高铁集合，以及围绕这些集合的一换一组合。基准值候选只读取 `基准值配比` 列；如果没有基准值，则不会把 Excel 当前 `一体化配比` 当作候选来源。
+
+两种外层搜索策略：
+
+- `grid`：领域搜索 + 梯度下降。先枚举少量规则化的活跃物料集合候选，再对每个候选调用 `scipy SLSQP` 做连续优化。
+- `grasp`：随机贪心构造 + 梯度下降。先保留少量确定性候选，再按多组权重做随机贪心活跃集合构造，并对每个候选调用 `scipy SLSQP` 做连续优化。
+
+如果要显式运行 `grasp`：
+
+```bash
+python3 main.py --search-strategy grasp
+```
+
+如果要调整 `grasp` 搜索强度：
+
+```bash
+python3 main.py --search-strategy grasp --grasp-restarts 10 --grasp-rcl-size 4
+```
 
 如果想输出到 Excel 副本而不是覆盖原始文件：
 
