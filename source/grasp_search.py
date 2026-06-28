@@ -22,7 +22,7 @@ class GraspSearch(ActiveSetSearch):
         ftol: float,
         candidate_limit: int,
         time_budget_seconds: float = None,
-        restarts: int = 12,
+        restarts: int = 6,
         rcl_size: int = 3,
         random_seed: int = 42,
     ):

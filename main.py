@@ -171,7 +171,7 @@ def main():
         default="grid",
         help="Outer search strategy for active material combinations.",
     )
-    parser.add_argument("--grasp-restarts", type=int, default=12)
+    parser.add_argument("--grasp-restarts", type=int, default=6)
     parser.add_argument("--grasp-rcl-size", type=int, default=3)
     parser.add_argument("--grasp-random-seed", type=int, default=42)
     parser.set_defaults(search_active_set=True)
