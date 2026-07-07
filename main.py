@@ -102,6 +102,37 @@ def write_solution(input_data: InputData, variable_data, args, final_feasible: b
     return output_path
 
 
+def detect_infeasible_upper_bounds(input_data: InputData):
+    checks = [
+        (field.SHEET_INTEGRATED_SINTER, input_data.sinter_rows, input_data.sinter_params),
+        (field.SHEET_INTEGRATED_PELLET, input_data.pellet_rows, input_data.pellet_params),
+    ]
+    issues = []
+    for sheet_name, rows, params in checks:
+        upper_sum = sum(params[row].ratio_bounds[1] for row in rows)
+        if upper_sum < 100.0 - 1e-9:
+            issues.append((sheet_name, upper_sum))
+    return issues
+
+
+def write_zero_solution(input_data: InputData, args, reason: str) -> str:
+    output_filename = (args.output or default_output_filename()) if args.copy else None
+    zero_sinter_ratio = {row: 0.0 for row in input_data.sinter_rows}
+    zero_pellet_ratio = {row: 0.0 for row in input_data.pellet_rows}
+    zero_burden_ratio = {row: 0.0 for row in input_data.burden_rows}
+    output_path = ResultStorage(input_data=input_data).write_core_variables_to_excel(
+        sinter_ratio=zero_sinter_ratio,
+        pellet_ratio=zero_pellet_ratio,
+        burden_ratio=zero_burden_ratio,
+        output_filename=output_filename,
+        overwrite_source=not args.copy,
+    )
+    logging.warning('INPUT PRECHECK FAILED: %s; write zero solution to %s', reason, output_path)
+    print('hot_metal_cost=0.0')
+    print(f'output={output_path}')
+    return output_path
+
+
 def run_active_search(input_data: InputData, args):
     if args.search_strategy == "grasp":
         return GraspSearch(
@@ -190,6 +221,16 @@ def main():
         f"search_strategy={args.search_strategy}",
         flush=True,
     )
+
+    infeasible_upper_issues = detect_infeasible_upper_bounds(input_data=input_data)
+    if infeasible_upper_issues:
+        detail = '; '.join(
+            f"{sheet_name} upper_sum={upper_sum:.12g}<100"
+            for sheet_name, upper_sum in infeasible_upper_issues
+        )
+        print(f"input_precheck failed={detail}", flush=True)
+        write_zero_solution(input_data=input_data, args=args, reason=detail)
+        return 0
 
     checker = ConstraintChecker(input_data=input_data)
     log_baseline_check(input_data=input_data, checker=checker)
