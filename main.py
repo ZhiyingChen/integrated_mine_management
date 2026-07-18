@@ -12,7 +12,7 @@ from source.variable_data import VariableData
 from source.utils import field, header, log
 
 
-DEFAULT_SEARCH_STRATEGY = "grasp"
+DEFAULT_SEARCH_STRATEGY = "grid"
 DEFAULT_TIME_BUDGET_SECONDS = 85.0
 
 
