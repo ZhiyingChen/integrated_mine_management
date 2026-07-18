@@ -22,9 +22,9 @@ class GraspSearch(ActiveSetSearch):
         ftol: float,
         candidate_limit: int,
         time_budget_seconds: float = None,
-        restarts: int = 20,
-        rcl_size: int = 5,
-        random_seed: int = 7,
+        restarts: int = 6,
+        rcl_size: int = 3,
+        random_seed: int = 42,
     ):
         super().__init__(
             input_data=input_data,

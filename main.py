@@ -12,8 +12,8 @@ from source.variable_data import VariableData
 from source.utils import field, header, log
 
 
-GRID_DEFAULT_TIME_BUDGET_SECONDS = 85.0
-GRASP_DEFAULT_TIME_BUDGET_SECONDS = 180.0
+DEFAULT_SEARCH_STRATEGY = "grasp"
+DEFAULT_TIME_BUDGET_SECONDS = 85.0
 
 
 def default_output_filename() -> str:
@@ -197,26 +197,20 @@ def main():
     parser.add_argument(
         "--active-set-time-budget-seconds",
         type=float,
-        default=None,
-        help="Stop active material set search after this many seconds. Defaults to 85 for grid and 180 for grasp.",
+        default=DEFAULT_TIME_BUDGET_SECONDS,
+        help="Stop active material set search after this many seconds. Defaults to 85 for both strategies.",
     )
     parser.add_argument(
         "--search-strategy",
         choices=["grid", "grasp"],
-        default="grid",
+        default=DEFAULT_SEARCH_STRATEGY,
         help="Outer search strategy for active material combinations.",
     )
-    parser.add_argument("--grasp-restarts", type=int, default=20)
-    parser.add_argument("--grasp-rcl-size", type=int, default=5)
-    parser.add_argument("--grasp-random-seed", type=int, default=7)
+    parser.add_argument("--grasp-restarts", type=int, default=6)
+    parser.add_argument("--grasp-rcl-size", type=int, default=3)
+    parser.add_argument("--grasp-random-seed", type=int, default=42)
     parser.set_defaults(search_active_set=True)
     args = parser.parse_args()
-    if args.active_set_time_budget_seconds is None:
-        args.active_set_time_budget_seconds = (
-            GRASP_DEFAULT_TIME_BUDGET_SECONDS
-            if args.search_strategy == "grasp"
-            else GRID_DEFAULT_TIME_BUDGET_SECONDS
-        )
 
     log.setup_log(log_dir="logs")
     input_data = InputData(exe_folder="./")

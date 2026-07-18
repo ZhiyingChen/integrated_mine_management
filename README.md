@@ -46,10 +46,9 @@ python ../../main.py
 
 ### 2.1 Grid：规则化邻域搜索 + SLSQP 连续优化
 
-`grid` 是默认策略。以下两条命令等价：
+Grid 需要通过参数显式选择：
 
 ```powershell
-python ..\..\main.py
 python ..\..\main.py --search-strategy grid
 ```
 
@@ -61,7 +60,7 @@ Grid 会从以下来源构造少量确定性的活跃物料集合：
 - TFe 较高的物料集合；
 - 围绕上述集合生成的一换一邻域组合。
 
-每个候选集合都交给 SLSQP 求连续配比。相同输入和相同参数下，Grid 通常具有更好的可重复性，适合作为生产默认策略。
+每个候选集合都交给 SLSQP 求连续配比。相同输入和相同参数下，Grid 通常具有更好的可重复性，适合作为确定性较强的对比策略。
 
 推荐默认调用：
 
@@ -75,9 +74,10 @@ python ..\..\main.py --search-strategy grid `
 
 ### 2.2 GRASP：随机贪心构造 + SLSQP 连续优化
 
-GRASP 根据成本、TFe、baseline 使用情况和物料上限构造随机贪心候选，最后对每个候选调用 SLSQP。GRASP 不复用 Grid 的 `heuristic+heuristic`、`baseline+heuristic` 确定性候选，最终结果只在 `grasp:*` 候选中选择。
+GRASP 是当前默认策略。它根据成本、TFe、baseline 使用情况和物料上限构造随机贪心候选，最后对每个候选调用 SLSQP。GRASP 不复用 Grid 的 `heuristic+heuristic`、`baseline+heuristic` 确定性候选，最终结果只在 `grasp:*` 候选中选择。
 
 ```powershell
+python ..\..\main.py
 python ..\..\main.py --search-strategy grasp
 ```
 
@@ -85,10 +85,10 @@ python ..\..\main.py --search-strategy grasp
 
 ```powershell
 python ..\..\main.py --search-strategy grasp `
-  --grasp-restarts 20 `
-  --grasp-rcl-size 5 `
-  --grasp-random-seed 7 `
-  --active-set-time-budget-seconds 180
+  --grasp-restarts 6 `
+  --grasp-rcl-size 3 `
+  --grasp-random-seed 42 `
+  --active-set-time-budget-seconds 85
 ```
 
 固定 `--grasp-random-seed` 后，同一输入与同一组参数可以复现候选构造过程。增加重启次数通常能扩大组合覆盖范围，但会增加运行时间。
@@ -98,11 +98,11 @@ python ..\..\main.py --search-strategy grasp `
 | 项目 | `grid` | `grasp` |
 |---|---|---|
 | 中文说明 | 规则化邻域搜索 + SLSQP 连续优化 | 随机贪心构造 + SLSQP 连续优化 |
-| 是否默认 | 是 | 否 |
+| 是否默认 | 否 | 是 |
 | 候选来源 | 启发式、baseline、高 TFe、低单位铁成本及一换一邻域 | 多权重随机贪心候选 |
 | 可重复性 | 确定性较强 | 固定随机种子后可重复 |
 | 主要调节参数 | 候选上限、时间预算 | 重启次数、RCL 大小、随机种子、时间预算 |
-| 建议用途 | 生产默认、结果稳定 | 尝试跳出 Grid 的固定候选范围，作为替代方案对比 |
+| 建议用途 | 确定性较强的对比策略 | 生产默认，扩大随机组合覆盖范围 |
 
 两种策略都不保证一定找到业务可行解。候选比较规则为：优先选择业务可行结果；可行结果之间优先选择铁水成本更低的结果；全部不可行时，依次比较失败约束数量、最大违反量和铁水成本。
 
@@ -112,9 +112,9 @@ python ..\..\main.py --search-strategy grasp `
 
 | 参数 | 类型 | 默认值 | 作用 | 调整建议 |
 |---|---:|---:|---|---|
-| `--search-strategy` | 枚举 | `grid` | 外层搜索策略，可选 `grid`、`grasp` | 前端建议使用下拉框；生产默认选 `grid` |
+| `--search-strategy` | 枚举 | `grasp` | 外层搜索策略，可选 `grid`、`grasp` | 前端建议使用下拉框；生产默认选 `grasp` |
 | `--active-set-candidate-limit` | 整数 | `4` | Grid 中限制最多评估的活跃集合数量 | 仅影响 Grid；GRASP 的候选规模由 `--grasp-restarts` 控制 |
-| `--active-set-time-budget-seconds` | 浮点数 | Grid：`85`；GRASP：`180` | 外层搜索软时间预算，单位为秒 | 只在候选之间检查，正在执行的单个 SLSQP 不会被强制中断，因此实际耗时可能超过该值 |
+| `--active-set-time-budget-seconds` | 浮点数 | `85` | 外层搜索软时间预算，单位为秒，Grid 与 GRASP 相同 | 只在候选之间检查，正在执行的单个 SLSQP 不会被强制中断，因此实际耗时可能超过该值 |
 | `--initial-maxiter` | 整数 | `40` | 每个候选的可行性阶段和完整可行性阶段的 SLSQP 最大迭代次数 | 难以找到可行解时可提高；会明显增加总耗时 |
 | `--cost-maxiter` | 整数 | `60` | 每个可行候选的成本优化阶段最大迭代次数 | 已经可行但成本改善不足时可提高 |
 | `--ftol` | 浮点数 | `1e-10` | SLSQP 的目标函数停止精度 | 数值越小要求越严格，通常也越慢；业务约束是否满足仍按 `1e-2` 容忍度判断 |
@@ -125,9 +125,9 @@ python ..\..\main.py --search-strategy grasp `
 
 | 参数 | 类型 | 默认值 | 作用 | 调整建议 |
 |---|---:|---:|---|---|
-| `--grasp-restarts` | 整数 | `20` | 随机贪心构造的重启次数，也是 GRASP 最多生成的候选数量 | 越大候选越多、耗时越长；重复活跃集合会自动跳过 |
-| `--grasp-rcl-size` | 整数 | `5` | RCL（候选限制表）大小，每次从排名靠前的若干物料中随机选择 | `1` 更接近纯贪心；增大后随机性和多样性提高 |
-| `--grasp-random-seed` | 整数 | `7` | GRASP 随机种子 | 后端应记录该值，便于复现结果 |
+| `--grasp-restarts` | 整数 | `6` | 随机贪心构造的重启次数，也是 GRASP 最多生成的候选数量 | 越大候选越多、耗时越长；重复活跃集合会自动跳过 |
+| `--grasp-rcl-size` | 整数 | `3` | RCL（候选限制表）大小，每次从排名靠前的若干物料中随机选择 | `1` 更接近纯贪心；增大后随机性和多样性提高 |
+| `--grasp-random-seed` | 整数 | `42` | GRASP 随机种子 | 后端应记录该值，便于复现结果 |
 
 以上三个参数在 `grid` 模式下不会影响结果。
 
@@ -141,16 +141,16 @@ python ..\..\main.py --search-strategy grasp `
 
 ### 3.4 常用调用示例
 
-默认 Grid，覆盖输入文件：
+默认 GRASP，覆盖输入文件：
 
 ```powershell
 python ..\..\main.py
 ```
 
-GRASP，覆盖输入文件：
+显式调用 Grid，覆盖输入文件：
 
 ```powershell
-python ..\..\main.py --search-strategy grasp
+python ..\..\main.py --search-strategy grid
 ```
 
 Grid，保留原始文件并输出指定副本：
@@ -163,10 +163,10 @@ GRASP，显式指定当前默认搜索参数：
 
 ```powershell
 python ..\..\main.py --search-strategy grasp `
-  --grasp-restarts 20 `
-  --grasp-rcl-size 5 `
-  --grasp-random-seed 7 `
-  --active-set-time-budget-seconds 180
+  --grasp-restarts 6 `
+  --grasp-rcl-size 3 `
+  --grasp-random-seed 42 `
+  --active-set-time-budget-seconds 85
 ```
 
 ## 4. 前后端接入约定
@@ -177,7 +177,7 @@ python ..\..\main.py --search-strategy grasp `
 
 ```text
 executable: <python executable>
-arguments:  [<repo>/main.py, --search-strategy, grid]
+arguments:  [<repo>/main.py, --search-strategy, grasp]
 cwd:        <case directory>
 ```
 
