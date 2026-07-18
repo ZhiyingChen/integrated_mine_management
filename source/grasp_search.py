@@ -1,6 +1,6 @@
 import random
 import time
-from typing import Dict, List, Sequence, Set, Tuple
+from typing import Dict, Sequence, Set, Tuple
 
 from .active_set_search import ActiveSetCandidate, ActiveSetSearch, CandidateResult
 from .utils import field, header
@@ -22,9 +22,9 @@ class GraspSearch(ActiveSetSearch):
         ftol: float,
         candidate_limit: int,
         time_budget_seconds: float = None,
-        restarts: int = 6,
-        rcl_size: int = 3,
-        random_seed: int = 42,
+        restarts: int = 20,
+        rcl_size: int = 5,
+        random_seed: int = 7,
     ):
         super().__init__(
             input_data=input_data,
@@ -48,21 +48,7 @@ class GraspSearch(ActiveSetSearch):
         seen = set()
         evaluated = 0
 
-        deterministic_candidates = self._deterministic_candidates()
-        total_candidates = len(deterministic_candidates) + self.restarts
-
-        for index, candidate in enumerate(deterministic_candidates, start=1):
-            if self._time_budget_exhausted(start_time) and best_result is not None:
-                break
-            key = self._candidate_key(candidate)
-            if key in seen:
-                continue
-            seen.add(key)
-            evaluated += 1
-            result = self.solve_candidate(candidate=candidate, index=evaluated, total=total_candidates)
-            if best_result is None or result.score < best_result.score:
-                best_result = result
-
+        total_candidates = self.restarts
         for restart in range(self.restarts):
             if self._time_budget_exhausted(start_time) and best_result is not None:
                 break
@@ -77,39 +63,6 @@ class GraspSearch(ActiveSetSearch):
                 best_result = result
 
         return best_result
-
-    def _deterministic_candidates(self) -> List[ActiveSetCandidate]:
-        sinter_sets = self._blend_candidate_sets(
-            group="sinter",
-            rows=self.input_data.sinter_rows,
-            params=self.input_data.sinter_params,
-            limit_key="烧结铁矿粉仓数≤",
-        )
-        pellet_sets = self._blend_candidate_sets(
-            group="pellet",
-            rows=self.input_data.pellet_rows,
-            params=self.input_data.pellet_params,
-            limit_key="球团铁矿粉仓数≤",
-        )
-        if not sinter_sets or not pellet_sets:
-            return []
-
-        candidates = [
-            ActiveSetCandidate(
-                name=f"{sinter_sets[0][0]}+{pellet_sets[0][0]}",
-                sinter_rows=sinter_sets[0][1],
-                pellet_rows=pellet_sets[0][1],
-            )
-        ]
-        if len(sinter_sets) > 1:
-            candidates.append(
-                ActiveSetCandidate(
-                    name=f"{sinter_sets[1][0]}+{pellet_sets[0][0]}",
-                    sinter_rows=sinter_sets[1][1],
-                    pellet_rows=pellet_sets[0][1],
-                )
-            )
-        return candidates
 
     def _construct_candidate(self, restart: int) -> ActiveSetCandidate:
         profile_name, weights = self.PROFILE_WEIGHTS[restart % len(self.PROFILE_WEIGHTS)]
