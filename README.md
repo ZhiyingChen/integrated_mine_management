@@ -46,7 +46,7 @@ python ../../main.py
 
 ### 2.1 Grid：规则化邻域搜索 + SLSQP 连续优化
 
-Grid 需要通过参数显式选择：
+Grid 可以通过参数显式选择，也可以直接使用程序默认值：
 
 ```powershell
 python ..\..\main.py --search-strategy grid
@@ -74,10 +74,9 @@ python ..\..\main.py --search-strategy grid `
 
 ### 2.2 GRASP：随机贪心构造 + SLSQP 连续优化
 
-GRASP 是当前默认策略。它根据成本、TFe、baseline 使用情况和物料上限构造随机贪心候选，最后对每个候选调用 SLSQP。GRASP 不复用 Grid 的 `heuristic+heuristic`、`baseline+heuristic` 确定性候选，最终结果只在 `grasp:*` 候选中选择。
+GRASP 不是当前默认策略，需要通过参数显式选择。它根据成本、TFe、baseline 使用情况和物料上限构造随机贪心候选，最后对每个候选调用 SLSQP。GRASP 不复用 Grid 的 `heuristic+heuristic`、`baseline+heuristic` 确定性候选，最终结果只在 `grasp:*` 候选中选择。
 
 ```powershell
-python ..\..\main.py
 python ..\..\main.py --search-strategy grasp
 ```
 
@@ -102,7 +101,7 @@ python ..\..\main.py --search-strategy grasp `
 | 候选来源 | 启发式、baseline、高 TFe、低单位铁成本及一换一邻域 | 多权重随机贪心候选             |
 | 可重复性 | 确定性较强 | 固定随机种子后可重复            |
 | 主要调节参数 | 候选上限、时间预算 | 重启次数、RCL 大小、随机种子、时间预算 |
-| 建议用途 | 确定性较强的对比策略 | 生产默认，扩大随机组合覆盖范围       |
+| 建议用途 | 默认生产策略、确定性较强的求解 | 对比测试、扩大随机组合覆盖范围       |
 
 两种策略都不保证一定找到业务可行解。候选比较规则为：优先选择业务可行结果；可行结果之间优先选择铁水成本更低的结果；全部不可行时，依次比较失败约束数量、最大违反量和铁水成本。
 
@@ -112,7 +111,7 @@ python ..\..\main.py --search-strategy grasp `
 
 | 参数 | 类型 | 默认值 | 作用 | 调整建议                                        |
 |---|---:|---:|---|---------------------------------------------|
-| `--search-strategy` | 枚举 | `grasp` | 外层搜索策略，可选 `grid`、`grasp` | 前端建议使用下拉框；生产默认选 `grid`                      |
+| `--search-strategy` | 枚举 | `grid` | 外层搜索策略，可选 `grid`、`grasp` | 前端建议使用下拉框；不传时使用 Grid                      |
 | `--active-set-candidate-limit` | 整数 | `4` | Grid 中限制最多评估的活跃集合数量 | 仅影响 Grid；GRASP 的候选规模由 `--grasp-restarts` 控制 |
 | `--active-set-time-budget-seconds` | 浮点数 | `85` | 外层搜索软时间预算，单位为秒，Grid 与 GRASP 相同 | 只在候选之间检查，正在执行的单个 SLSQP 不会被强制中断，因此实际耗时可能超过该值 |
 | `--initial-maxiter` | 整数 | `40` | 每个候选的可行性阶段和完整可行性阶段的 SLSQP 最大迭代次数 | 难以找到可行解时可提高；会明显增加总耗时                        |
@@ -147,7 +146,7 @@ python ..\..\main.py --search-strategy grasp `
 python ..\..\main.py
 ```
 
-显式调用 Grasp，覆盖输入文件：
+显式调用 GRASP，覆盖输入文件：
 
 ```powershell
 python ..\..\main.py --search-strategy grasp
@@ -173,12 +172,18 @@ python ..\..\main.py --search-strategy grasp `
 
 ### 4.1 推荐的子进程调用方式
 
-后端应为每次任务创建独立算例目录，把输入文件命名为 `智能配矿一体化.xlsx`，然后使用以下等价调用方式：
+后端应为每次任务创建独立算例目录，把输入文件命名为 `智能配矿一体化.xlsx`。不传 `--search-strategy` 时默认使用 Grid；如果要使用 GRASP，则显式传入该参数。调用方式如下：
 
 ```text
 executable: <python executable>
-arguments:  [<repo>/main.py, --search-strategy, grasp]
+arguments:  [<repo>/main.py]
 cwd:        <case directory>
+```
+
+GRASP 调用时将 arguments 改为：
+
+```text
+arguments:  [<repo>/main.py, --search-strategy, grasp]
 ```
 
 不要让两个进程同时操作同一个算例目录：默认模式会覆盖同一个 Excel，日志也会写入同一个 `logs` 目录。
