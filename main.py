@@ -86,15 +86,41 @@ def log_baseline_check(input_data: InputData, checker: ConstraintChecker):
 
 def write_solution(input_data: InputData, variable_data, args, final_feasible: bool, final_failed: int, final_total: int) -> str:
     output_filename = (args.output or default_output_filename()) if args.copy else None
-    output_path = ResultStorage(input_data=input_data).write_core_variables_to_excel(
-        sinter_ratio=variable_data.sinter_ratio,
-        pellet_ratio=variable_data.pellet_ratio,
-        burden_ratio=variable_data.burden_ratio,
-        output_filename=output_filename,
-        overwrite_source=not args.copy,
-    )
+    result_storage = ResultStorage(input_data=input_data)
+    if final_feasible:
+        output_path = result_storage.write_core_variables_to_excel(
+            sinter_ratio=variable_data.sinter_ratio,
+            pellet_ratio=variable_data.pellet_ratio,
+            burden_ratio=variable_data.burden_ratio,
+            output_filename=output_filename,
+            overwrite_source=not args.copy,
+        )
+    else:
+        zero_sinter_ratio = {row: 0.0 for row in input_data.sinter_rows}
+        zero_pellet_ratio = {row: 0.0 for row in input_data.pellet_rows}
+        zero_burden_ratio = {row: 0.0 for row in input_data.burden_rows}
+        output_path = result_storage.write_core_variables_to_excel(
+            sinter_ratio=zero_sinter_ratio,
+            pellet_ratio=zero_pellet_ratio,
+            burden_ratio=zero_burden_ratio,
+            output_filename=output_filename,
+            overwrite_source=not args.copy,
+        )
+        logging.warning(
+            "EXCEL WRITE: business_feasible=False failed=%s/%s; all integrated ratios set to zero output=%s",
+            final_failed,
+            final_total,
+            output_path,
+        )
+        print(
+            f"excel_write_zeroed business_feasible=False failed={final_failed}/{final_total}; "
+            "all integrated ratios set to zero",
+            flush=True,
+        )
     logging.info(
-        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s",
+        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s"
+        if final_feasible
+        else "EXCEL WRITE RESULT: zero core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s",
         output_path,
         variable_data.hot_metal_cost,
         final_feasible,
@@ -257,8 +283,8 @@ def main():
             flush=True,
         )
         if not final_feasible:
-            logging.warning("active_set_search best result is not business feasible; write best available solution.")
-            print("active_set_search best result is not business feasible; write best available solution.", flush=True)
+            logging.warning("active_set_search best result is not business feasible; skip Excel write.")
+            print("active_set_search best result is not business feasible; skip Excel write.", flush=True)
         write_solution(
             input_data=input_data,
             variable_data=search_result.variable_data,
@@ -295,8 +321,8 @@ def main():
         flush=True,
     )
     if not initial_feasible:
-        logging.warning("initial_solution is not business feasible; write initial solution and skip downstream optimization.")
-        print("initial_solution is not business feasible; write initial solution and skip downstream optimization.", flush=True)
+        logging.warning("initial_solution is not business feasible; skip Excel write and downstream optimization.")
+        print("initial_solution is not business feasible; skip Excel write and downstream optimization.", flush=True)
         write_solution(
             input_data=input_data,
             variable_data=initial_variable_data,
@@ -369,8 +395,8 @@ def main():
         flush=True,
     )
     if not final_feasible:
-        logging.warning("final_solution is not business feasible; write infeasible solution for Excel-side review.")
-        print("final_solution is not business feasible; write infeasible solution for Excel-side review.", flush=True)
+        logging.warning("final_solution is not business feasible; skip Excel write.")
+        print("final_solution is not business feasible; skip Excel write.", flush=True)
 
     write_solution(
         input_data=input_data,

@@ -204,7 +204,7 @@ output=./智能配矿一体化.xlsx
 
 - 进程退出码非 `0`：程序运行异常，未正常完成；
 - 出现 `business_feasible=True` 且 `failed=0/...`：结果通过业务约束校验；
-- 出现 `business_feasible=False`：Excel 仍已写入，但只能作为不可行结果供排查；
+- 出现 `business_feasible=False`：不写入不可行求解配比，而是将三组一体化配比全部写为 `0`；
 - 出现 `input_precheck failed=...`：输入上下限冲突，程序跳过求解并把三组核心变量全部写为 `0`。
 
 `scipy success=False` 只表示 SciPy 可能达到迭代上限，不等同于业务失败；最终以 `business_feasible` 和 `failed` 为准。
@@ -218,7 +218,7 @@ output=./智能配矿一体化.xlsx
 - 在控制台打印 `input_precheck failed=...`；
 - 在日志打印 `INPUT PRECHECK FAILED`。
 
-其他业务约束失败不会阻止写回。程序会写入当前找到的最佳结果，并在控制台和日志中明确提示不可行。
+其他业务约束失败不会写回不可行求解配比。程序会将三组一体化配比全部写为 `0`，并在控制台和日志中明确提示不可行及失败约束。
 
 高炉炉料勾选规则会纳入最终业务校验：
 
@@ -346,5 +346,5 @@ python ..\..\scripts\benchmark_scipy_no_count.py --mode cost
 - 物料使用个数不是整数变量，由 Grid/GRASP 外层活跃集合搜索处理；
 - 内层配比优化使用 SciPy SLSQP；
 - 初始解由程序根据上下限生成，不依赖 Excel 当前一体化结果；
-- 即使最终业务不可行，仍写回最佳可用结果，前后端必须展示业务校验状态；
+- 最终业务不可行时将三组一体化配比写为 `0`，前后端必须展示业务校验状态和失败约束；
 - Excel 负责展示公式联动值，Python 负责算法计算、业务校验和核心变量写回。
