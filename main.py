@@ -217,7 +217,7 @@ def main():
     parser.add_argument(
         "--active-set-candidate-limit",
         type=int,
-        default=4,
+        default=18,
         help="Maximum number of active material set candidates to evaluate.",
     )
     parser.add_argument(
