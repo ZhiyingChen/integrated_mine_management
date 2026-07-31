@@ -7,8 +7,13 @@ from source.model import Model
 from source.result_storage import ResultStorage
 from source.constraint_checker import ConstraintChecker
 from source.active_set_search import ActiveSetSearch
+from source.grasp_search import GraspSearch
 from source.variable_data import VariableData
 from source.utils import field, header, log
+
+
+DEFAULT_SEARCH_STRATEGY = "grid"
+DEFAULT_TIME_BUDGET_SECONDS = 85.0
 
 
 def default_output_filename() -> str:
@@ -81,15 +86,41 @@ def log_baseline_check(input_data: InputData, checker: ConstraintChecker):
 
 def write_solution(input_data: InputData, variable_data, args, final_feasible: bool, final_failed: int, final_total: int) -> str:
     output_filename = (args.output or default_output_filename()) if args.copy else None
-    output_path = ResultStorage(input_data=input_data).write_core_variables_to_excel(
-        sinter_ratio=variable_data.sinter_ratio,
-        pellet_ratio=variable_data.pellet_ratio,
-        burden_ratio=variable_data.burden_ratio,
-        output_filename=output_filename,
-        overwrite_source=not args.copy,
-    )
+    result_storage = ResultStorage(input_data=input_data)
+    if final_feasible:
+        output_path = result_storage.write_core_variables_to_excel(
+            sinter_ratio=variable_data.sinter_ratio,
+            pellet_ratio=variable_data.pellet_ratio,
+            burden_ratio=variable_data.burden_ratio,
+            output_filename=output_filename,
+            overwrite_source=not args.copy,
+        )
+    else:
+        zero_sinter_ratio = {row: 0.0 for row in input_data.sinter_rows}
+        zero_pellet_ratio = {row: 0.0 for row in input_data.pellet_rows}
+        zero_burden_ratio = {row: 0.0 for row in input_data.burden_rows}
+        output_path = result_storage.write_core_variables_to_excel(
+            sinter_ratio=zero_sinter_ratio,
+            pellet_ratio=zero_pellet_ratio,
+            burden_ratio=zero_burden_ratio,
+            output_filename=output_filename,
+            overwrite_source=not args.copy,
+        )
+        logging.warning(
+            "EXCEL WRITE: business_feasible=False failed=%s/%s; all integrated ratios set to zero output=%s",
+            final_failed,
+            final_total,
+            output_path,
+        )
+        print(
+            f"excel_write_zeroed business_feasible=False failed={final_failed}/{final_total}; "
+            "all integrated ratios set to zero",
+            flush=True,
+        )
     logging.info(
-        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s",
+        "EXCEL WRITE: core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s"
+        if final_feasible
+        else "EXCEL WRITE RESULT: zero core variables written output=%s hot_metal_cost=%.12g business_feasible=%s failed=%s/%s",
         output_path,
         variable_data.hot_metal_cost,
         final_feasible,
@@ -132,6 +163,29 @@ def write_zero_solution(input_data: InputData, args, reason: str) -> str:
     return output_path
 
 
+def run_active_search(input_data: InputData, args):
+    if args.search_strategy == "grasp":
+        return GraspSearch(
+            input_data=input_data,
+            initial_maxiter=args.initial_maxiter,
+            cost_maxiter=args.cost_maxiter,
+            ftol=args.ftol,
+            candidate_limit=args.active_set_candidate_limit,
+            time_budget_seconds=args.active_set_time_budget_seconds,
+            restarts=args.grasp_restarts,
+            rcl_size=args.grasp_rcl_size,
+            random_seed=args.grasp_random_seed,
+        ).run()
+    return ActiveSetSearch(
+        input_data=input_data,
+        initial_maxiter=args.initial_maxiter,
+        cost_maxiter=args.cost_maxiter,
+        ftol=args.ftol,
+        candidate_limit=args.active_set_candidate_limit,
+        time_budget_seconds=args.active_set_time_budget_seconds,
+    ).run()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Find initial feasible solution, optimize cost, and write core variables back to Excel.")
     parser.add_argument("--initial-maxiter", type=int, default=40)
@@ -163,23 +217,40 @@ def main():
     parser.add_argument(
         "--active-set-candidate-limit",
         type=int,
-        default=4,
+        default=8,
         help="Maximum number of active material set candidates to evaluate.",
     )
     parser.add_argument(
         "--active-set-time-budget-seconds",
         type=float,
-        default=85.0,
-        help="Stop active material set search after this many seconds and keep the best evaluated candidate.",
+        default=DEFAULT_TIME_BUDGET_SECONDS,
+        help="Stop active material set search after this many seconds. Defaults to 85 for both strategies.",
     )
+    parser.add_argument(
+        "--search-strategy",
+        choices=["grid", "grasp"],
+        default=DEFAULT_SEARCH_STRATEGY,
+        help="Outer search strategy for active material combinations.",
+    )
+    parser.add_argument("--grasp-restarts", type=int, default=7)
+    parser.add_argument("--grasp-rcl-size", type=int, default=3)
+    parser.add_argument("--grasp-random-seed", type=int, default=42)
     parser.set_defaults(search_active_set=True)
     args = parser.parse_args()
 
     log.setup_log(log_dir="logs")
     input_data = InputData(exe_folder="./")
     input_data.read_data()
-    logging.info("RUN MODE: active_set_search=%s", args.search_active_set)
-    print(f"run_mode active_set_search={args.search_active_set}", flush=True)
+    logging.info(
+        "RUN MODE: active_set_search=%s search_strategy=%s",
+        args.search_active_set,
+        args.search_strategy,
+    )
+    print(
+        f"run_mode active_set_search={args.search_active_set} "
+        f"search_strategy={args.search_strategy}",
+        flush=True,
+    )
 
     infeasible_upper_issues = detect_infeasible_upper_bounds(input_data=input_data)
     if infeasible_upper_issues:
@@ -194,14 +265,7 @@ def main():
     checker = ConstraintChecker(input_data=input_data)
     log_baseline_check(input_data=input_data, checker=checker)
     if args.search_active_set:
-        search_result = ActiveSetSearch(
-            input_data=input_data,
-            initial_maxiter=args.initial_maxiter,
-            cost_maxiter=args.cost_maxiter,
-            ftol=args.ftol,
-            candidate_limit=args.active_set_candidate_limit,
-            time_budget_seconds=args.active_set_time_budget_seconds,
-        ).run()
+        search_result = run_active_search(input_data=input_data, args=args)
         final_total, final_failed = checker.validate_and_log(
             search_result.variable_data,
             stage="[SEARCH_BEST]",
@@ -219,8 +283,8 @@ def main():
             flush=True,
         )
         if not final_feasible:
-            logging.warning("active_set_search best result is not business feasible; write best available solution.")
-            print("active_set_search best result is not business feasible; write best available solution.", flush=True)
+            logging.warning("active_set_search best result is not business feasible; skip Excel write.")
+            print("active_set_search best result is not business feasible; skip Excel write.", flush=True)
         write_solution(
             input_data=input_data,
             variable_data=search_result.variable_data,
@@ -257,8 +321,8 @@ def main():
         flush=True,
     )
     if not initial_feasible:
-        logging.warning("initial_solution is not business feasible; write initial solution and skip downstream optimization.")
-        print("initial_solution is not business feasible; write initial solution and skip downstream optimization.", flush=True)
+        logging.warning("initial_solution is not business feasible; skip Excel write and downstream optimization.")
+        print("initial_solution is not business feasible; skip Excel write and downstream optimization.", flush=True)
         write_solution(
             input_data=input_data,
             variable_data=initial_variable_data,
@@ -331,8 +395,8 @@ def main():
         flush=True,
     )
     if not final_feasible:
-        logging.warning("final_solution is not business feasible; write infeasible solution for Excel-side review.")
-        print("final_solution is not business feasible; write infeasible solution for Excel-side review.", flush=True)
+        logging.warning("final_solution is not business feasible; skip Excel write.")
+        print("final_solution is not business feasible; skip Excel write.", flush=True)
 
     write_solution(
         input_data=input_data,
