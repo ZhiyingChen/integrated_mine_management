@@ -66,7 +66,7 @@ Grid 会从以下来源构造少量确定性的活跃物料集合：
 
 ```powershell
 python ..\..\main.py --search-strategy grid `
-  --active-set-candidate-limit 18 `
+  --active-set-candidate-limit 8 `
   --active-set-time-budget-seconds 85 `
   --initial-maxiter 40 `
   --cost-maxiter 60
@@ -84,7 +84,7 @@ python ..\..\main.py --search-strategy grasp
 
 ```powershell
 python ..\..\main.py --search-strategy grasp `
-  --grasp-restarts 6 `
+  --grasp-restarts 7 `
   --grasp-rcl-size 3 `
   --grasp-random-seed 42 `
   --active-set-time-budget-seconds 85
@@ -112,7 +112,7 @@ python ..\..\main.py --search-strategy grasp `
 | 参数 | 类型 | 默认值 | 作用 | 调整建议                                        |
 |---|---:|---:|---|---------------------------------------------|
 | `--search-strategy` | 枚举 | `grid` | 外层搜索策略，可选 `grid`、`grasp` | 前端建议使用下拉框；不传时使用 Grid                      |
-| `--active-set-candidate-limit` | 整数 | `18` | Grid 中限制最多评估的活跃集合数量 | 仅影响 Grid；GRASP 的候选规模由 `--grasp-restarts` 控制；候选越多通常耗时越长 |
+| `--active-set-candidate-limit` | 整数 | `8` | Grid 中限制最多评估的活跃集合数量 | 仅影响 Grid；GRASP 的候选规模由 `--grasp-restarts` 控制；候选越多通常耗时越长 |
 | `--active-set-time-budget-seconds` | 浮点数 | `85` | 外层搜索软时间预算，单位为秒，Grid 与 GRASP 相同 | 只在候选之间检查，正在执行的单个 SLSQP 不会被强制中断，因此实际耗时可能超过该值 |
 | `--initial-maxiter` | 整数 | `40` | 每个候选的可行性阶段和完整可行性阶段的 SLSQP 最大迭代次数 | 难以找到可行解时可提高；会明显增加总耗时                        |
 | `--cost-maxiter` | 整数 | `60` | 每个可行候选的成本优化阶段最大迭代次数 | 已经可行但成本改善不足时可提高                             |
@@ -124,7 +124,7 @@ python ..\..\main.py --search-strategy grasp `
 
 | 参数 | 类型 | 默认值 | 作用 | 调整建议 |
 |---|---:|---:|---|---|
-| `--grasp-restarts` | 整数 | `6` | 随机贪心构造的重启次数，也是 GRASP 最多生成的候选数量 | 越大候选越多、耗时越长；重复活跃集合会自动跳过 |
+| `--grasp-restarts` | 整数 | `7` | 随机贪心构造的重启次数，也是 GRASP 最多生成的候选数量 | 越大候选越多、耗时越长；重复活跃集合会自动跳过 |
 | `--grasp-rcl-size` | 整数 | `3` | RCL（候选限制表）大小，每次从排名靠前的若干物料中随机选择 | `1` 更接近纯贪心；增大后随机性和多样性提高 |
 | `--grasp-random-seed` | 整数 | `42` | GRASP 随机种子 | 后端应记录该值，便于复现结果 |
 
@@ -162,7 +162,7 @@ GRASP，显式指定当前默认搜索参数：
 
 ```powershell
 python ..\..\main.py --search-strategy grasp `
-  --grasp-restarts 6 `
+  --grasp-restarts 7 `
   --grasp-rcl-size 3 `
   --grasp-random-seed 42 `
   --active-set-time-budget-seconds 85
