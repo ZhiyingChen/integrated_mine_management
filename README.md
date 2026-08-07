@@ -62,6 +62,17 @@ Grid 会从以下来源构造少量确定性的活跃物料集合：
 
 每个候选集合都交给 SLSQP 求连续配比。相同输入和相同参数下，Grid 通常具有更好的可重复性，适合作为确定性较强的对比策略。
 
+Grid 有两种候选构造模式，通过 `--grid-mode` 选择：
+
+- `portfolio`：默认值。确定性的多组合搜索，同时覆盖启发式、高 TFe、均衡评分等种子集合，并在这些集合上轮转生成一换一邻域组合。适合希望扩大 Grid 物料组合覆盖范围的场景；
+- `legacy`：原有规则化邻域搜索。需要与旧版 Grid 结果严格对照时显式传入 `--grid-mode legacy`。
+
+调用 Portfolio Grid：
+
+```powershell
+python ..\..\main.py --search-strategy grid --grid-mode portfolio
+```
+
 推荐默认调用：
 
 ```powershell
@@ -112,6 +123,7 @@ python ..\..\main.py --search-strategy grasp `
 | 参数 | 类型 | 默认值 | 作用 | 调整建议                                        |
 |---|---:|---:|---|---------------------------------------------|
 | `--search-strategy` | 枚举 | `grid` | 外层搜索策略，可选 `grid`、`grasp` | 前端建议使用下拉框；不传时使用 Grid                      |
+| `--grid-mode` | 枚举 | `portfolio` | Grid 候选构造模式，可选 `legacy`、`portfolio` | 仅 `grid` 生效；`portfolio` 扩大确定性候选组合覆盖范围 |
 | `--active-set-candidate-limit` | 整数 | `8` | Grid 中限制最多评估的活跃集合数量 | 仅影响 Grid；GRASP 的候选规模由 `--grasp-restarts` 控制；候选越多通常耗时越长 |
 | `--active-set-time-budget-seconds` | 浮点数 | `85` | 外层搜索软时间预算，单位为秒，Grid 与 GRASP 相同 | 只在候选之间检查，正在执行的单个 SLSQP 不会被强制中断，因此实际耗时可能超过该值 |
 | `--initial-maxiter` | 整数 | `40` | 每个候选的可行性阶段和完整可行性阶段的 SLSQP 最大迭代次数 | 难以找到可行解时可提高；会明显增加总耗时                        |
@@ -152,6 +164,12 @@ python ..\..\main.py
 python ..\..\main.py --search-strategy grasp
 ```
 
+显式调用 Portfolio Grid，覆盖输入文件：
+
+```powershell
+python ..\..\main.py --search-strategy grid --grid-mode portfolio
+```
+
 Grid，保留原始文件并输出指定副本：
 
 ```powershell
@@ -172,7 +190,7 @@ python ..\..\main.py --search-strategy grasp `
 
 ### 4.1 推荐的子进程调用方式
 
-后端应为每次任务创建独立算例目录，把输入文件命名为 `智能配矿一体化.xlsx`。不传 `--search-strategy` 时默认使用 Grid；如果要使用 GRASP，则显式传入该参数。调用方式如下：
+后端应为每次任务创建独立算例目录，把输入文件命名为 `智能配矿一体化.xlsx`。不传 `--search-strategy` 时默认使用 Portfolio Grid；如果要使用 GRASP 或 Legacy Grid，则显式传入对应参数。调用方式如下：
 
 ```text
 executable: <python executable>
@@ -184,6 +202,12 @@ GRASP 调用时将 arguments 改为：
 
 ```text
 arguments:  [<repo>/main.py, --search-strategy, grasp]
+```
+
+Portfolio Grid 调用时将 arguments 改为：
+
+```text
+arguments:  [<repo>/main.py, --search-strategy, grid, --grid-mode, portfolio]
 ```
 
 不要让两个进程同时操作同一个算例目录：默认模式会覆盖同一个 Excel，日志也会写入同一个 `logs` 目录。

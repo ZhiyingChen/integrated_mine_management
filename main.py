@@ -183,6 +183,7 @@ def run_active_search(input_data: InputData, args):
         ftol=args.ftol,
         candidate_limit=args.active_set_candidate_limit,
         time_budget_seconds=args.active_set_time_budget_seconds,
+        grid_mode=args.grid_mode,
     ).run()
 
 
@@ -231,6 +232,12 @@ def main():
         choices=["grid", "grasp"],
         default=DEFAULT_SEARCH_STRATEGY,
         help="Outer search strategy for active material combinations.",
+    )
+    parser.add_argument(
+        "--grid-mode",
+        choices=["legacy", "portfolio"],
+        default="portfolio",
+        help="Grid candidate construction mode. Only applies when --search-strategy grid.",
     )
     parser.add_argument("--grasp-restarts", type=int, default=7)
     parser.add_argument("--grasp-rcl-size", type=int, default=3)

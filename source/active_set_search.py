@@ -60,6 +60,7 @@ class ActiveSetSearch:
         ftol: float,
         candidate_limit: int,
         time_budget_seconds: float = None,
+        grid_mode: str = "portfolio",
     ):
         self.input_data = input_data
         self.initial_maxiter = initial_maxiter
@@ -67,6 +68,7 @@ class ActiveSetSearch:
         self.ftol = ftol
         self.candidate_limit = candidate_limit
         self.time_budget_seconds = time_budget_seconds
+        self.grid_mode = grid_mode
         self.checker = ConstraintChecker(input_data=input_data)
 
     def run(self) -> CandidateResult:
@@ -101,6 +103,11 @@ class ActiveSetSearch:
         return best_result
 
     def generate_candidates(self) -> List[ActiveSetCandidate]:
+        if self.grid_mode == "portfolio":
+            return self._generate_portfolio_candidates()
+        return self._generate_legacy_candidates()
+
+    def _generate_legacy_candidates(self) -> List[ActiveSetCandidate]:
         sinter_sets = self._blend_candidate_sets(
             group="sinter",
             rows=self.input_data.sinter_rows,
@@ -124,6 +131,46 @@ class ActiveSetSearch:
             )
             if len(candidates) >= self.candidate_limit:
                 return candidates
+        return candidates
+
+    def _generate_portfolio_candidates(self) -> List[ActiveSetCandidate]:
+        """Build a deterministic, diversified portfolio within the same candidate budget."""
+        sinter_sets = self._portfolio_blend_sets(
+            group="sinter",
+            rows=self.input_data.sinter_rows,
+            params=self.input_data.sinter_params,
+            limit_key="烧结铁矿粉仓数≤",
+        )
+        pellet_sets = self._portfolio_blend_sets(
+            group="pellet",
+            rows=self.input_data.pellet_rows,
+            params=self.input_data.pellet_params,
+            limit_key="球团铁矿粉仓数≤",
+        )
+
+        candidates = []
+        seen = set()
+        # Diagonal traversal covers both blend sides before taking local variants.
+        for depth in range(len(sinter_sets) + len(pellet_sets) - 1):
+            for sinter_index in range(depth + 1):
+                pellet_index = depth - sinter_index
+                if sinter_index >= len(sinter_sets) or pellet_index >= len(pellet_sets):
+                    continue
+                sinter_name, sinter_rows = sinter_sets[sinter_index]
+                pellet_name, pellet_rows = pellet_sets[pellet_index]
+                key = (tuple(sorted(sinter_rows)), tuple(sorted(pellet_rows)))
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append(
+                    ActiveSetCandidate(
+                        name=f"portfolio:{sinter_name}+{pellet_name}",
+                        sinter_rows=sinter_rows,
+                        pellet_rows=pellet_rows,
+                    )
+                )
+                if len(candidates) >= self.candidate_limit:
+                    return candidates
         return candidates
 
     def solve_candidate(self, candidate: ActiveSetCandidate, index: int, total: int) -> CandidateResult:
@@ -286,6 +333,142 @@ class ActiveSetSearch:
             params=params,
             limit=max(1, min(self.candidate_limit, 18)),
         )
+
+    def _portfolio_blend_sets(self, group: str, rows: Sequence[int], params: Dict[int, object], limit_key: str):
+        ore_rows = [
+            row for row in rows
+            if params[row].name in self.input_data.sinter_ore_names and params[row].ratio_bounds[1] > 0
+        ]
+        limit = int(self.input_data.param_dict.get(limit_key, len(ore_rows)))
+        non_ore_rows = set(rows) - set(ore_rows)
+        seeds = []
+
+        heuristic_rows = Model(input_data=self.input_data).active_rows[group]
+        self._append_seed(seeds, "heuristic", heuristic_rows)
+
+        baseline_ores = self._baseline_ore_rows(group=group, rows=ore_rows, params=params, limit=limit)
+        if baseline_ores:
+            self._append_seed(seeds, "baseline", non_ore_rows | baseline_ores)
+
+        cheap_ores = self._top_ores(
+            ore_rows,
+            params,
+            limit,
+            key=lambda row: (
+                params[row].unit_price / max(params[row].chemical_content.get("TFe", 1e-9), 1e-9),
+                -params[row].chemical_content.get("TFe", 0.0),
+                row,
+            ),
+        )
+        self._append_seed(seeds, "cheap_by_fe", non_ore_rows | cheap_ores)
+
+        high_tfe_ores = self._top_ores(
+            ore_rows,
+            params,
+            limit,
+            key=lambda row: (
+                -params[row].chemical_content.get("TFe", 0.0),
+                params[row].unit_price,
+                row,
+            ),
+        )
+        self._append_seed(seeds, "high_tfe", non_ore_rows | high_tfe_ores)
+
+        balanced_ores = self._balanced_ores(
+            group=group,
+            ore_rows=ore_rows,
+            params=params,
+            limit=limit,
+        )
+        self._append_seed(seeds, "balanced", non_ore_rows | balanced_ores)
+
+        return self._with_round_robin_swaps(
+            seeds=seeds,
+            ore_rows=ore_rows,
+            non_ore_rows=non_ore_rows,
+            params=params,
+            limit=max(1, self.candidate_limit),
+        )
+
+    def _balanced_ores(self, group: str, ore_rows: Sequence[int], params: Dict[int, object], limit: int) -> Set[int]:
+        if not ore_rows:
+            return set()
+        sheet = field.SHEET_INTEGRATED_SINTER if group == "sinter" else field.SHEET_INTEGRATED_PELLET
+        raw = {
+            row: {
+                "cost": params[row].unit_price / max(params[row].chemical_content.get("TFe", 1e-9), 1e-9),
+                "tfe": params[row].chemical_content.get("TFe", 0.0),
+                "baseline": self.input_data.numeric_value_by_header(sheet, row, header.BlendHeader.baseline_ratio),
+                "upper": params[row].ratio_bounds[1],
+            }
+            for row in ore_rows
+        }
+
+        def normalized(key: str, row: int) -> float:
+            values = [raw[item][key] for item in ore_rows]
+            lower = min(values)
+            upper = max(values)
+            if upper - lower <= 1e-12:
+                return 1.0
+            return (raw[row][key] - lower) / (upper - lower)
+
+        def score(row: int) -> float:
+            return (
+                0.45 * (1.0 - normalized("cost", row))
+                + 0.25 * normalized("tfe", row)
+                + 0.20 * normalized("baseline", row)
+                + 0.10 * normalized("upper", row)
+            )
+
+        return set(sorted(ore_rows, key=lambda row: (-score(row), row))[:limit])
+
+    def _with_round_robin_swaps(
+        self,
+        seeds: List[Tuple[str, Set[int]]],
+        ore_rows: Sequence[int],
+        non_ore_rows: Set[int],
+        params: Dict[int, object],
+        limit: int,
+    ) -> List[Tuple[str, Set[int]]]:
+        result = list(seeds)
+        ore_set = set(ore_rows)
+        candidates_by_seed = []
+        for seed_name, active_rows in seeds:
+            active_ores = sorted(active_rows & ore_set)
+            inactive_ores = sorted(
+                ore_set - set(active_ores),
+                key=lambda row: (
+                    params[row].unit_price / max(params[row].chemical_content.get("TFe", 1e-9), 1e-9),
+                    -params[row].chemical_content.get("TFe", 0.0),
+                    row,
+                ),
+            )
+            swaps = []
+            for out_row in active_ores:
+                for in_row in inactive_ores[:3]:
+                    swapped_ores = (set(active_ores) - {out_row}) | {in_row}
+                    swaps.append((f"{seed_name}:swap_{out_row}_{in_row}", non_ore_rows | swapped_ores))
+            candidates_by_seed.append(swaps)
+
+        seen = {frozenset(rows) for _, rows in result}
+        swap_index = 0
+        while len(result) < limit:
+            added = False
+            for swaps in candidates_by_seed:
+                if swap_index >= len(swaps):
+                    continue
+                name, rows = swaps[swap_index]
+                row_set = frozenset(rows)
+                if row_set not in seen:
+                    seen.add(row_set)
+                    result.append((name, rows))
+                    added = True
+                    if len(result) >= limit:
+                        return result
+            if not added and all(swap_index >= len(swaps) for swaps in candidates_by_seed):
+                break
+            swap_index += 1
+        return result
 
     def _baseline_ore_rows(self, group: str, rows: Sequence[int], params: Dict[int, object], limit: int) -> Set[int]:
         sheet = field.SHEET_INTEGRATED_SINTER if group == "sinter" else field.SHEET_INTEGRATED_PELLET
